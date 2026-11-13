@@ -1,6 +1,6 @@
 // Generates small test videos with ffmpeg (skipped if ffmpeg is unavailable).
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 export const FIX = join(__dirname, 'fixtures')
@@ -16,7 +16,12 @@ export function hasFfmpeg(): boolean {
 
 function ff(out: string, args: string[]): string {
   const p = join(FIX, out)
-  if (!existsSync(p)) execFileSync('ffmpeg', ['-y', '-loglevel', 'error', ...args, p])
+  if (existsSync(p)) return p
+  // Test files run in parallel workers: write to a private temp name, then rename atomically so
+  // no worker ever reads a half-written fixture.
+  const tmp = join(FIX, `.tmp-${process.pid}-${out}`)
+  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', ...args, tmp])
+  renameSync(tmp, p)
   return p
 }
 
