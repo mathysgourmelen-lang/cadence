@@ -39,6 +39,7 @@ export interface CadenceApi {
   reveal(path: string): Promise<void>
   openDataFolder(): Promise<void>
   mediaUrl(path: string): string
+  platform: string
 }
 
 export type { AccountsState }

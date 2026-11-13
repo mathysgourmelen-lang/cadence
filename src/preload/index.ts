@@ -36,6 +36,7 @@ const api: CadenceApi = {
   openExternal: (url) => call('shell:open', url),
   reveal: (path) => call('shell:reveal', path),
   openDataFolder: () => call('shell:dataFolder'),
+  platform: process.platform,
   mediaUrl: (path) => `cadence-media://lib/${encodeURIComponent(path.split('/').pop() ?? '')}`
 }
 

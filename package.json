@@ -29,5 +29,64 @@
     "typescript": "^5.9.3",
     "vite": "^7.3.8",
     "vitest": "^3.2.7"
+  },
+  "homepage": "https://github.com/mathysgourmelen-lang/cadence",
+  "build": {
+    "appId": "app.cadence.scheduler",
+    "productName": "Cadence",
+    "copyright": "\u00a9 2026 max",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "resources/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.social-networking",
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "identity": "-",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "darkModeSupport": true,
+      "artifactName": "Cadence-${version}-${arch}.${ext}",
+      "extendInfo": {
+        "LSUIElement": false,
+        "NSHumanReadableCopyright": "\u00a9 2026 max"
+      }
+    },
+    "dmg": {
+      "title": "Cadence ${version}",
+      "artifactName": "Cadence-${version}-${arch}.${ext}",
+      "contents": [
+        {
+          "x": 150,
+          "y": 190,
+          "type": "file"
+        },
+        {
+          "x": 450,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 600,
+        "height": 400
+      }
+    },
+    "publish": null
   }
 }

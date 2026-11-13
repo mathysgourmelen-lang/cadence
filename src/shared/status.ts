@@ -23,11 +23,11 @@ export function postStatus(post: Post): PostStatus {
   return 'scheduled'
 }
 
+const PENDING: TargetState[] = ['draft', 'scheduled', 'missed', 'uploading', 'processing', 'ready', 'publishing', 'scheduled_remote']
+
 /** A post is "upcoming" while any enabled target still has work or a remote publish pending. */
 export function isUpcoming(post: Post): boolean {
-  const s = postStatus(post)
-  if (s === 'draft' || s === 'scheduled' || s === 'in_progress' || s === 'missed') return true
-  return activeTargets(post).some((t) => t.state === 'scheduled_remote')
+  return activeTargets(post).some((t) => PENDING.includes(t.state))
 }
 
 export function stateLabel(state: TargetState): string {

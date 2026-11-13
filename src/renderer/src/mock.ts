@@ -176,6 +176,7 @@ export const mockApi: CadenceApi = {
   },
   async reveal() {},
   async openDataFolder() {},
+  platform: 'darwin',
   mediaUrl(path) {
     return path
   }

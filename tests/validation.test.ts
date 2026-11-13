@@ -116,3 +116,20 @@ describe('helpers', () => {
     expect(aspectLabel(1080, 1350)).toBe('4:5')
   })
 })
+
+import { isUpcoming, postStatus } from '../src/shared/status'
+describe('post status', () => {
+  const t = (state: string, enabled = true) => ({ enabled, state, attempts: 0, log: [] }) as any
+  const post = (ig: any, yt: any) => ({ instagram: ig, youtube: yt }) as any
+  it('keeps a post in the queue while one platform is still pending', () => {
+    const p = post(t('scheduled'), t('failed'))
+    expect(isUpcoming(p)).toBe(true)
+    expect(postStatus(p)).toBe('failed')
+  })
+  it('moves fully finished posts out of the queue', () => {
+    expect(isUpcoming(post(t('published'), t('failed')))).toBe(false)
+    expect(postStatus(post(t('published'), t('failed')))).toBe('partial')
+    expect(isUpcoming(post(t('published'), t('scheduled_remote')))).toBe(true)
+    expect(postStatus(post(t('published'), t('x', false)))).toBe('published')
+  })
+})

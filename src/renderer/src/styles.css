@@ -99,8 +99,13 @@ body {
   overflow: hidden;
 }
 
-body.web {
+body.web,
+body.opaque {
   background: var(--bg);
+}
+
+body.opaque .sidebar {
+  background: rgba(255, 255, 255, 0.025);
 }
 
 input,
@@ -1510,7 +1515,8 @@ input[type='range']::-webkit-slider-thumb {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: linear-gradient(to top, var(--bg-content) 70%, transparent);
+  background: linear-gradient(to top, var(--bg-content) 62%, transparent);
+  backdrop-filter: blur(3px);
   z-index: 5;
 }
 
@@ -1520,9 +1526,22 @@ input[type='range']::-webkit-slider-thumb {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  max-height: calc(100vh - 76px);
+  overflow-y: auto;
+  padding-bottom: 24px;
+  margin-right: -10px;
+  padding-right: 10px;
+}
+
+.phone-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: none;
 }
 
 .phone-frame {
+  flex: none;
   width: 100%;
   max-width: 300px;
   margin: 0 auto;

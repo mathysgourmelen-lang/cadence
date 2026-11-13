@@ -734,6 +734,7 @@ export default function Compose() {
               title={title}
               seekTo={coverSeek}
               showModeSwitch={d.ig.enabled && d.yt.enabled}
+              fill={d.video.media.height / Math.max(1, d.video.media.width) >= 1.7}
             />
             <div className="media-facts">
               <Fact k="Length" v={formatDuration(d.video.media.durationSec)} />

@@ -31,7 +31,8 @@ export default function PhonePreview({
   caption,
   title,
   seekTo,
-  showModeSwitch
+  showModeSwitch,
+  fill = true
 }: {
   src?: string
   poster?: string
@@ -44,6 +45,8 @@ export default function PhonePreview({
   /** When set, pause and show this frame (used by the cover picker). */
   seekTo: number | null
   showModeSwitch: boolean
+  /** Vertical videos fill the screen like the real apps; others are letterboxed. */
+  fill?: boolean
 }) {
   const ref = useRef<HTMLVideoElement>(null)
   const [muted, setMuted] = useState(true)
@@ -79,7 +82,7 @@ export default function PhonePreview({
   }
 
   return (
-    <div className="preview-col">
+    <div className="phone-wrap">
       {showModeSwitch && (
         <div style={{ display: 'flex', justifyContent: 'center' }}>
           <Segmented
@@ -96,7 +99,7 @@ export default function PhonePreview({
         <div className="phone-screen" onClick={toggle}>
           <div className="phone-island" />
           {src ? (
-            <video ref={ref} src={src} poster={poster} autoPlay={seekTo == null} loop muted={muted} playsInline />
+            <video ref={ref} src={src} poster={poster} autoPlay={seekTo == null} loop muted={muted} playsInline style={{ objectFit: fill ? 'cover' : 'contain' }} />
           ) : (
             <div className="phone-placeholder">
               <Icon.Film size={40} />

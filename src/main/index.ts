@@ -100,9 +100,9 @@ function createWindow(show = true): void {
     title: 'Cadence',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 20, y: 20 },
-    vibrancy: 'sidebar',
-    visualEffectState: 'followWindow',
-    backgroundColor: '#00000000',
+    ...(process.platform === 'darwin'
+      ? { vibrancy: 'sidebar' as const, visualEffectState: 'followWindow' as const, backgroundColor: '#00000000' }
+      : { backgroundColor: '#0b0b0f' }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -522,7 +522,7 @@ app.whenReady().then(async () => {
     scheduler.kick()
   })
 
-  void checkAccounts()
+  if (!process.env.CADENCE_SKIP_ACCOUNT_CHECK) void checkAccounts()
   void cleanLibrary(store.libraryDir, store.posts)
 
   app.on('activate', () => showWindow())
