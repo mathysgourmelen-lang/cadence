@@ -47,6 +47,33 @@ const theme = process.argv[4] || 'dark'
   await shot('views-hover')
   await win.locator('.page').evaluate((el) => el.scrollTo(0, 2000))
   await shot('views-scrolled')
+  // Retention needs the real YouTube API: stub it with a realistic curve.
+  await app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('analytics:retention')
+    ipcMain.handle('analytics:retention', () => ({
+      ok: true,
+      value: Array.from({ length: 100 }, (_, i) => {
+        const at = (i + 1) / 100
+        return { at, watch: Math.max(0.28, 1.08 * Math.exp(-at * 1.1) - (i < 4 ? 0.06 * (4 - i) : 0) + (i > 88 ? 0.08 : 0)), relative: 0.63 }
+      })
+    }))
+  })
+  await nav('Analytics')
+  await win.waitForTimeout(1200)
+  await shot('analytics-ig')
+  await win.click('.an-table tbody tr:nth-child(1)')
+  await win.waitForTimeout(800)
+  await shot('analytics-ig-detail')
+  await win.keyboard.press('Escape')
+  await win.click('.segmented button:has-text("YouTube")')
+  await win.waitForTimeout(1000)
+  await shot('analytics-yt')
+  await win.click('.an-table tbody tr:nth-child(1)')
+  await win.waitForSelector('.ret-chart svg')
+  await win.hover('.ret-chart svg', { position: { x: 220, y: 90 } })
+  await win.waitForTimeout(500)
+  await shot('analytics-yt-retention')
+  await win.keyboard.press('Escape')
   await nav('Queue')
   await shot('queue')
   await nav('Calendar')

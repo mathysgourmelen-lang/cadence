@@ -102,6 +102,67 @@ async function add(file: string, when: string, cap: string, title: string, ig: P
     instagram: { fetchedAt, totalViews: 1_982_640, followers: 48_213, postCount: 212, countedPosts: 212, top: igTop, recent: igTop },
     youtube: { fetchedAt, totalViews: 5_216_904, followers: 61_480, postCount: 148, countedPosts: 148, top: ytTop, recent: ytTop }
   })
+  const titles = ['My 5am routine that actually stuck ☀️', 'Desk setup tour 2026 🖥️', 'Latte art in slow motion ☕️', 'Golden hour in Shibuya 🌆', 'Studio vlog #12 🎙️', 'Sunset from 120m up 🚁', '3 habits that changed my mornings', 'What I eat in a day', 'Room makeover in 30 seconds', 'Coffee shop tour, Tokyo']
+  const reels = titles.map((title, i) => {
+    const views = Math.round(400_000 / (i + 1.3) + 3000 * ((i * 7) % 5))
+    return {
+      id: `r${i}`,
+      title,
+      url: 'https://example.com',
+      thumbnailUrl: t[i % 4],
+      publishedAt: new Date(Date.now() - (i * 3 + 1) * 86400_000).toISOString(),
+      views,
+      reach: Math.round(views * 0.71),
+      avgWatchSec: Math.round((5 + ((i * 13) % 9) + (i === 2 ? 6 : 0)) * 10) / 10,
+      totalWatchSec: Math.round(views * (6 + (i % 4))),
+      skipRate: Math.round((22 + ((i * 17) % 31)) * 10) / 10,
+      likes: Math.round(views * 0.058),
+      comments: Math.round(views * 0.004),
+      shares: Math.round(views * 0.011),
+      saves: Math.round(views * 0.016),
+      durationSec: i % 3 === 0 ? 27 : undefined,
+      viaCadence: i % 3 === 0 || undefined
+    }
+  })
+  const ytVideos = titles.map((title, i) => {
+    const views = Math.round(1_200_000 / (i + 1.1) + 9000 * ((i * 5) % 7))
+    const dur = [32, 45, 28, 58, 40, 22, 51, 35, 30, 44][i]
+    const pct = Math.round((68 + ((i * 23) % 52)) * 10) / 10
+    return {
+      id: `vid${i}abcdef`,
+      title,
+      url: 'https://example.com',
+      thumbnailUrl: t[(i + 1) % 4],
+      publishedAt: new Date(Date.now() - (i * 3 + 2) * 86400_000).toISOString(),
+      durationSec: dur,
+      views,
+      engagedViews: Math.round(views * 0.62),
+      avgViewSec: Math.round((dur * pct) / 100),
+      avgViewPct: pct,
+      watchMinutes: Math.round((views * dur * pct) / 100 / 60),
+      likes: Math.round(views * 0.045),
+      comments: Math.round(views * 0.002),
+      shares: Math.round(views * 0.004),
+      subscribersGained: Math.round(views * 0.0021),
+      viaCadence: i % 2 === 0 || undefined
+    }
+  })
+  store.setAnalytics({
+    refreshing: false,
+    instagram: { fetchedAt, reels, unavailable: [] },
+    youtube: {
+      fetchedAt,
+      videos: ytVideos,
+      traffic: [
+        { source: 'SHORTS', views: 812_400 },
+        { source: 'SUBSCRIBER', views: 96_300 },
+        { source: 'YT_SEARCH', views: 41_800 },
+        { source: 'RELATED_VIDEO', views: 22_600 },
+        { source: 'EXT_URL', views: 9_400 },
+        { source: 'NO_LINK_OTHER', views: 5_100 }
+      ]
+    }
+  })
   await store.flush()
   console.log('seeded', store.posts.length)
 })()

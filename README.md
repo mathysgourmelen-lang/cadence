@@ -12,12 +12,15 @@ Schedule Instagram Reels and YouTube Shorts from your Mac. Pick MP4s from your c
 - **Batch scheduling.** Drop several videos and spread them across your favourite posting times in one click.
 - **Library tab.** Point Cadence at your exports folder and see every video with a thumbnail, hover-to-play, and a Reel/Short readiness check. Badges show what's already posted or queued; select several and create posts in one go.
 - **Views tab.** Total views per Instagram account and YouTube channel, combined total, growth over 7/30/90 days, and your top posts.
+- **Analytics tab.** Average watch time, skip rate, shares and saves per Reel; average % viewed, retention graph, traffic sources and subscribers gained per YouTube video.
 - **Queue, calendar and history.** Drag posts between days, retry failures, and see an activity log for every post.
 - **Posts straight to the official APIs** (Instagram Graph API and YouTube Data API). No third-party service, nothing stored online. Your keys stay in the macOS Keychain.
 
 | Library | Views |
 | --- | --- |
 | ![Library](docs/screenshots/library.png) | ![Views](docs/screenshots/views.png) |
+| **Analytics** | |
+| ![Analytics](docs/screenshots/analytics.png) | |
 | **Queue** | **Calendar** |
 | ![Queue](docs/screenshots/queue.png) | ![Calendar](docs/screenshots/calendar.png) |
 

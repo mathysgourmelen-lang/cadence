@@ -1,6 +1,8 @@
 import type {
   AccountsState,
   AppSnapshot,
+  AnalyticsState,
+  RetentionPoint,
   FolderListing,
   InsightsState,
   ImportedVideo,
@@ -45,6 +47,8 @@ export interface CadenceApi {
   /** URL the <video> element can play for a file inside the library folder. */
   folderUrl(relPath: string): string
   refreshInsights(): Promise<InsightsState>
+  refreshAnalytics(): Promise<AnalyticsState>
+  retention(videoId: string): Promise<RetentionPoint[]>
   openExternal(url: string): Promise<void>
   reveal(path: string): Promise<void>
   openDataFolder(): Promise<void>

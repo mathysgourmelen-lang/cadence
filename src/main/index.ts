@@ -24,6 +24,7 @@ import { ApiError } from './http'
 import { cleanLibrary, importVideo, saveThumbnail, serveLibraryFile } from './media'
 import { FolderLibrary } from './folder'
 import { instagramInsights, recordHistory, youtubeInsights } from './insights'
+import { instagramAnalytics, youtubeAnalytics, youtubeRetention } from './analytics'
 import { applyAction, deletePost, PostError, reschedule, savePost, type PostAction } from './posts'
 import type { AppSnapshot, InstagramPageChoice, Platform, PostDraftInput, Settings } from '../shared/types'
 import { isUpcoming } from '../shared/status'
@@ -42,6 +43,8 @@ if (!app.requestSingleInstanceLock()) {
 let store: Store
 let folderLib: FolderLibrary
 let insightsRun: Promise<void> | null = null
+let analyticsRun: Promise<void> | null = null
+const retentionCache = new Map<string, { at: number; points: import('../shared/types').RetentionPoint[] }>()
 let scheduler: Scheduler
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -65,7 +68,7 @@ function instagram(): InstagramClient {
 }
 
 function snapshot(): AppSnapshot {
-  return { posts: store.posts, settings: store.settings, accounts: store.accounts, insights: store.insights, version: app.getVersion() }
+  return { posts: store.posts, settings: store.settings, accounts: store.accounts, insights: store.insights, analytics: store.analytics, version: app.getVersion() }
 }
 
 function friendly(err: unknown): string {
@@ -237,7 +240,8 @@ function buildMenu(): void {
         { label: 'Calendar', accelerator: 'Cmd+4', click: () => showWindow('calendar') },
         { label: 'History', accelerator: 'Cmd+5', click: () => showWindow('history') },
         { label: 'Views', accelerator: 'Cmd+6', click: () => showWindow('views') },
-        { label: 'Accounts', accelerator: 'Cmd+7', click: () => showWindow('accounts') },
+        { label: 'Analytics', accelerator: 'Cmd+7', click: () => showWindow('analytics') },
+        { label: 'Accounts', accelerator: 'Cmd+8', click: () => showWindow('accounts') },
         { type: 'separator' },
         ...(isDev ? ([{ role: 'reload' }, { role: 'toggleDevTools' }] as MenuItemConstructorOptions[]) : []),
         { role: 'togglefullscreen' }
@@ -360,6 +364,43 @@ function refreshInsights(): Promise<void> {
   return insightsRun
 }
 
+function saveYtAccessToken(tokens: YouTubeTokens): void {
+  const sec = store.getSecrets().youtube
+  if (sec && sec.accessToken !== tokens.accessToken) {
+    store.setSecrets({ youtube: { ...sec, accessToken: tokens.accessToken, accessTokenExpiresAt: tokens.accessTokenExpiresAt } })
+  }
+}
+
+/** Fetches watch time, skip rate and traffic data. Concurrent calls share one run. */
+function refreshAnalytics(): Promise<void> {
+  if (analyticsRun) return analyticsRun
+  analyticsRun = (async () => {
+    store.setAnalytics({ refreshing: true })
+    const acc = store.accounts
+    const igSec = store.getSecrets().instagram
+    const tokens = ytTokensFromStore()
+    const [ig, yt] = await Promise.allSettled([
+      acc.instagram.connected && acc.instagram.igUserId && igSec
+        ? instagramAnalytics(instagram(), { igUserId: acc.instagram.igUserId, accessToken: igSec.accessToken }, store.posts)
+        : Promise.resolve(undefined),
+      tokens ? youtubeAnalytics(youtube, tokens, store.posts) : Promise.resolve(undefined)
+    ])
+    if (tokens) saveYtAccessToken(tokens)
+    const cur = store.analytics
+    const fetchedAt = new Date().toISOString()
+    store.setAnalytics({
+      instagram: acc.instagram.connected ? (ig.status === 'fulfilled' && ig.value ? { fetchedAt, ...ig.value } : cur.instagram) : undefined,
+      youtube: acc.youtube.connected ? (yt.status === 'fulfilled' && yt.value ? { fetchedAt, ...yt.value } : cur.youtube) : undefined,
+      instagramError: ig.status === 'rejected' ? friendly(ig.reason) : undefined,
+      youtubeError: yt.status === 'rejected' ? friendly(yt.reason) : undefined,
+      refreshing: false
+    })
+  })().finally(() => {
+    analyticsRun = null
+  })
+  return analyticsRun
+}
+
 // ---------------- IPC ----------------
 
 function registerIpc(): void {
@@ -469,6 +510,7 @@ function registerIpc(): void {
     store.setSecrets({ instagram: undefined })
     store.setAccounts({ instagram: { connected: false } })
     store.setInsights({ instagram: undefined, instagramError: undefined })
+    store.setAnalytics({ instagram: undefined, instagramError: undefined })
   })
 
   handle('instagram:limit', async () => {
@@ -518,6 +560,8 @@ function registerIpc(): void {
     store.setSecrets({ youtube: undefined })
     store.setAccounts({ youtube: { connected: false, quotaUsedToday: 0 } })
     store.setInsights({ youtube: undefined, youtubeError: undefined })
+    store.setAnalytics({ youtube: undefined, youtubeError: undefined })
+    retentionCache.clear()
   })
 
   handle('folder:list', async () => {
@@ -542,6 +586,23 @@ function registerIpc(): void {
   handle('insights:refresh', async () => {
     await refreshInsights()
     return store.insights
+  })
+
+  handle('analytics:refresh', async () => {
+    await refreshAnalytics()
+    return store.analytics
+  })
+
+  handle('analytics:retention', async (videoId: string) => {
+    const hit = retentionCache.get(String(videoId))
+    if (hit && Date.now() - hit.at < 30 * 60_000) return hit.points
+    const tokens = ytTokensFromStore()
+    if (!tokens) throw new PostError('Connect YouTube to see retention.')
+    const v = store.analytics.youtube?.videos.find((x) => x.id === videoId)
+    const points = await youtubeRetention(youtube, tokens, String(videoId), v?.publishedAt)
+    saveYtAccessToken(tokens)
+    retentionCache.set(String(videoId), { at: Date.now(), points })
+    return points
   })
 
   handle('shell:open', async (url: string) => {

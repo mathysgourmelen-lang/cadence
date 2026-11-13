@@ -13,13 +13,15 @@ import SettingsView from './views/Settings'
 import Guide from './views/Guide'
 import Library from './views/Library'
 import ViewsTab from './views/Views'
+import Analytics from './views/Analytics'
 
 const NAV: { route: Route; label: string; icon: (p: { size?: number }) => ReactNode }[] = [
   { route: 'library', label: 'Library', icon: Icon.Library },
   { route: 'queue', label: 'Queue', icon: Icon.Queue },
   { route: 'calendar', label: 'Calendar', icon: Icon.Calendar },
   { route: 'history', label: 'History', icon: Icon.History },
-  { route: 'views', label: 'Views', icon: Icon.Eye }
+  { route: 'views', label: 'Views', icon: Icon.Eye },
+  { route: 'analytics', label: 'Analytics', icon: Icon.Chart }
 ]
 
 const SETUP: { route: Route; label: string; icon: (p: { size?: number }) => ReactNode }[] = [
@@ -108,6 +110,7 @@ export default function App() {
         {route === 'library' && <Library />}
         {route === 'queue' && <Queue />}
         {route === 'views' && <ViewsTab />}
+        {route === 'analytics' && <Analytics />}
         {route === 'calendar' && <CalendarView />}
         {route === 'history' && <History />}
         {route === 'accounts' && <Accounts />}

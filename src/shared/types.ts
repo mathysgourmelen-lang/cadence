@@ -215,6 +215,7 @@ export interface AppSnapshot {
   settings: Settings
   accounts: AccountsState
   insights: InsightsState
+  analytics: AnalyticsState
   version: string
 }
 
@@ -293,4 +294,67 @@ export interface ProgressEvent {
   postId: string
   platform: Platform
   progress: number
+}
+
+// ---------- Analytics (watch time, retention, skip rate) ----------
+
+export interface ReelAnalytics {
+  id: string
+  title: string
+  url?: string
+  thumbnailUrl?: string
+  publishedAt?: string
+  views: number | null
+  reach: number | null
+  /** Seconds. */
+  avgWatchSec: number | null
+  /** Seconds, including replays. */
+  totalWatchSec: number | null
+  /** Percent (0-100) of views that skipped in the first 3 seconds. */
+  skipRate: number | null
+  likes: number | null
+  comments: number | null
+  shares: number | null
+  saves: number | null
+  /** Known only for reels posted through Cadence. */
+  durationSec?: number
+  viaCadence?: boolean
+}
+
+export interface YtVideoAnalytics {
+  id: string
+  title: string
+  url: string
+  thumbnailUrl?: string
+  publishedAt?: string
+  durationSec?: number
+  views: number
+  engagedViews: number | null
+  /** Seconds. */
+  avgViewSec: number | null
+  /** Percent of the video watched on average (can exceed 100 for looping Shorts). */
+  avgViewPct: number | null
+  watchMinutes: number | null
+  likes: number | null
+  comments: number | null
+  shares: number | null
+  subscribersGained: number | null
+  viaCadence?: boolean
+}
+
+export interface RetentionPoint {
+  /** Position in the video, 0.01-1. */
+  at: number
+  /** Share of viewers still watching at this point (can exceed 1 with rewatches). */
+  watch: number
+  /** 0-1 compared with YouTube videos of similar length; 0.5 is typical. */
+  relative: number | null
+}
+
+export interface AnalyticsState {
+  instagram?: { fetchedAt: string; reels: ReelAnalytics[]; unavailable: string[] }
+  youtube?: { fetchedAt: string; videos: YtVideoAnalytics[]; traffic: { source: string; views: number }[] }
+  instagramError?: string
+  youtubeError?: string
+  refreshing: boolean
 }

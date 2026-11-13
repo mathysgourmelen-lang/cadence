@@ -292,6 +292,14 @@ export class InstagramClient {
     return { items, after: body.paging?.next ? body.paging?.cursors?.after : undefined }
   }
 
+  /** Several insight metrics of one post, as { metric: value }. */
+  async mediaInsights(creds: InstagramCredentials, mediaId: string, metrics: string[]): Promise<Record<string, number | null>> {
+    const body = await this.get(`${mediaId}/insights`, { metric: metrics.join(','), access_token: creds.accessToken }, 'Could not read post insights')
+    const out: Record<string, number | null> = {}
+    for (const d of body.data ?? []) out[d.name] = insightValue({ data: [d] })
+    return out
+  }
+
   /** Views of a single post. */
   async mediaViews(creds: InstagramCredentials, mediaId: string): Promise<number | null> {
     const body = await this.get(`${mediaId}/insights`, { metric: 'views', access_token: creds.accessToken }, 'Could not read post views')

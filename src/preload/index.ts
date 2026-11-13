@@ -40,6 +40,8 @@ const api: CadenceApi = {
   onFolderChanged: (cb) => subscribe('folder:changed', () => cb()),
   folderUrl: (relPath) => `cadence-media://folder/${encodeURIComponent(relPath)}`,
   refreshInsights: () => call('insights:refresh'),
+  refreshAnalytics: () => call('analytics:refresh'),
+  retention: (videoId) => call('analytics:retention', videoId),
   openExternal: (url) => call('shell:open', url),
   reveal: (path) => call('shell:reveal', path),
   openDataFolder: () => call('shell:dataFolder'),

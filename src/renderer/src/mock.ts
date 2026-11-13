@@ -86,6 +86,7 @@ const ytTop = [stat('y1', 'My 5am routine that actually stuck ☀️', 1_204_000
 
 let state: AppSnapshot = {
   version: '1.0.0',
+  analytics: { refreshing: false },
   insights: {
     refreshing: false,
     history: Array.from({ length: 30 }, (_, i) => ({ day: day(29 - i), instagram: 1_480_000 + i * 9_800 + (i % 4) * 2_100, youtube: 3_900_000 + i * 31_000 + (i % 3) * 7_000 })),
@@ -228,6 +229,12 @@ export const mockApi: CadenceApi = {
   },
   folderUrl(rel) {
     return `/demo/clip${(rel.length % 3) + 1}.mp4`
+  },
+  async refreshAnalytics() {
+    return state.analytics
+  },
+  async retention() {
+    return Array.from({ length: 100 }, (_, i) => ({ at: (i + 1) / 100, watch: Math.max(0.2, 1.05 - i * 0.006 - (i < 5 ? 0.1 : 0)), relative: 0.62 }))
   },
   async refreshInsights() {
     await delay(900)

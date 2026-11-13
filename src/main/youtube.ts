@@ -9,20 +9,28 @@ import { open } from 'node:fs/promises'
 import { ApiError, fetchWithTimeout, readJson } from './http'
 import type { YouTubePrivacy } from '../shared/types'
 
-export const YT_SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly']
+export const YT_SCOPES = [
+  'https://www.googleapis.com/auth/youtube.upload',
+  'https://www.googleapis.com/auth/youtube.readonly',
+  // Watch time, retention and traffic sources for the Analytics tab.
+  'https://www.googleapis.com/auth/yt-analytics.readonly'
+]
 
 export interface YouTubeEndpoints {
   auth: string
   token: string
   api: string
   upload: string
+  /** YouTube Analytics API. */
+  analytics?: string
 }
 
 export const DEFAULT_YT_ENDPOINTS: YouTubeEndpoints = {
   auth: 'https://accounts.google.com/o/oauth2/v2/auth',
   token: 'https://oauth2.googleapis.com/token',
   api: 'https://www.googleapis.com/youtube/v3',
-  upload: 'https://www.googleapis.com/upload/youtube/v3'
+  upload: 'https://www.googleapis.com/upload/youtube/v3',
+  analytics: 'https://youtubeanalytics.googleapis.com/v2'
 }
 
 export interface YouTubeTokens {
@@ -122,12 +130,13 @@ export function googleError(status: number, body: any, context: string): ApiErro
     })
   }
   if (status === 403 && /has not been used|is disabled|accessNotConfigured/i.test(message + (reason ?? ''))) {
-    return new ApiError('The YouTube Data API v3 is not enabled in your Google Cloud project. Enable it, wait a few minutes, then retry.', {
-      status,
-      retriable: false,
-      code: reason,
-      raw: body
-    })
+    const analytics = /youtubeanalytics|YouTube Analytics/i.test(message)
+    return new ApiError(
+      analytics
+        ? 'The YouTube Analytics API is not enabled in your Google Cloud project. Enable it (Setup Guide, step 3.1), wait a few minutes, then refresh.'
+        : 'The YouTube Data API v3 is not enabled in your Google Cloud project. Enable it, wait a few minutes, then retry.',
+      { status, retriable: false, code: reason, raw: body }
+    )
   }
   const retriable = status >= 500 || status === 429 || status === 408
   return new ApiError(`${context}: ${message}`, { status, retriable, code: reason, raw: body })
@@ -295,6 +304,33 @@ export class YouTubeClient {
     return body
   }
 
+  /**
+   * Runs a YouTube Analytics report and returns rows as objects keyed by column name.
+   * https://developers.google.com/youtube/analytics/reference/reports/query
+   */
+  async analyticsReport(tokens: YouTubeTokens, params: Record<string, string | undefined>): Promise<Record<string, string | number>[]> {
+    const token = await this.accessToken(tokens)
+    const u = new URL(`${this.endpoints.analytics ?? DEFAULT_YT_ENDPOINTS.analytics}/reports`)
+    u.searchParams.set('ids', 'channel==MINE')
+    for (const [k, v] of Object.entries(params)) if (v) u.searchParams.set(k, v)
+    const res = await fetchWithTimeout(u.toString(), { headers: { Authorization: `Bearer ${token}` } })
+    const body = await readJson(res)
+    if (!res.ok) {
+      const reason = body?.error?.errors?.[0]?.reason
+      if (res.status === 403 && (reason === 'insufficientPermissions' || /insufficient|scope/i.test(body?.error?.message ?? ''))) {
+        throw new ApiError('Cadence needs permission to read your YouTube analytics. Disconnect and reconnect YouTube in Accounts, and tick every box on the Google screen.', {
+          status: 403,
+          retriable: false,
+          code: 'analyticsScope',
+          raw: body
+        })
+      }
+      throw googleError(res.status, body, 'Could not read YouTube analytics')
+    }
+    const cols: string[] = (body.columnHeaders ?? []).map((c: { name: string }) => c.name)
+    return (body.rows ?? []).map((r: (string | number)[]) => Object.fromEntries(cols.map((c, i) => [c, r[i]])))
+  }
+
   /** Lifetime channel totals and the playlist that holds every upload. */
   async channelStats(tokens: YouTubeTokens): Promise<{ views: number; subscribers?: number; videoCount: number; uploadsPlaylist?: string }> {
     const body = await this.apiGet(tokens, 'channels', { part: 'statistics,contentDetails', mine: 'true' }, 'Could not read channel stats')
@@ -329,10 +365,10 @@ export class YouTubeClient {
   async videoStats(
     tokens: YouTubeTokens,
     ids: string[]
-  ): Promise<{ id: string; title: string; publishedAt?: string; thumbnailUrl?: string; views: number; likes?: number; comments?: number }[]> {
+  ): Promise<{ id: string; title: string; publishedAt?: string; thumbnailUrl?: string; durationSec?: number; views: number; likes?: number; comments?: number }[]> {
     const out = []
     for (let i = 0; i < ids.length; i += 50) {
-      const body = await this.apiGet(tokens, 'videos', { part: 'snippet,statistics', id: ids.slice(i, i + 50).join(','), maxResults: '50' }, 'Could not read video stats')
+      const body = await this.apiGet(tokens, 'videos', { part: 'snippet,statistics,contentDetails', id: ids.slice(i, i + 50).join(','), maxResults: '50' }, 'Could not read video stats')
       for (const v of body.items ?? []) {
         const st = v.statistics ?? {}
         out.push({
@@ -340,6 +376,7 @@ export class YouTubeClient {
           title: v.snippet?.title ?? '',
           publishedAt: v.snippet?.publishedAt,
           thumbnailUrl: v.snippet?.thumbnails?.medium?.url ?? v.snippet?.thumbnails?.default?.url,
+          durationSec: parseIsoDuration(v.contentDetails?.duration),
           views: Number(st.viewCount ?? 0),
           likes: st.likeCount != null ? Number(st.likeCount) : undefined,
           comments: st.commentCount != null ? Number(st.commentCount) : undefined
@@ -472,4 +509,11 @@ export class YouTubeClient {
       await fh.close()
     }
   }
+}
+
+/** "PT1M5S" -> 65. */
+export function parseIsoDuration(d?: string): number | undefined {
+  const m = d && /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/.exec(d)
+  if (!m) return undefined
+  return Number(m[1] ?? 0) * 86400 + Number(m[2] ?? 0) * 3600 + Number(m[3] ?? 0) * 60 + Number(m[4] ?? 0)
 }

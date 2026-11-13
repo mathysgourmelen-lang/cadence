@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, existsSync, renameSync, copyFileSync } from 'n
 import { writeFile, rename, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
-import type { AccountsState, InsightsState, Post, Settings } from '../shared/types'
+import type { AccountsState, AnalyticsState, InsightsState, Post, Settings } from '../shared/types'
 import { DEFAULT_SETTINGS } from '../shared/defaults'
 export { DEFAULT_SETTINGS }
 
@@ -32,6 +32,7 @@ export interface PersistedState {
   accounts: AccountsState
   quota: { day: string; used: number }
   insights?: InsightsState
+  analytics?: AnalyticsState
 }
 
 export const DEFAULT_ACCOUNTS: AccountsState = {
@@ -86,7 +87,8 @@ export class Store extends EventEmitter {
           youtube: { ...DEFAULT_ACCOUNTS.youtube, ...(raw.accounts?.youtube ?? {}) }
         },
         quota: raw.quota ?? fresh.quota,
-        insights: raw.insights ? { ...raw.insights, history: raw.insights.history ?? [], refreshing: false } : undefined
+        insights: raw.insights ? { ...raw.insights, history: raw.insights.history ?? [], refreshing: false } : undefined,
+        analytics: raw.analytics ? { ...raw.analytics, refreshing: false } : undefined
       }
     } catch (err) {
       // Keep a copy of the unreadable file instead of silently losing the queue.
@@ -130,6 +132,9 @@ export class Store extends EventEmitter {
   }
   get insights(): InsightsState {
     return this.state.insights ?? { history: [], refreshing: false }
+  }
+  get analytics(): AnalyticsState {
+    return this.state.analytics ?? { refreshing: false }
   }
   getPost(id: string): Post | undefined {
     return this.state.posts.find((p) => p.id === id)
@@ -185,6 +190,13 @@ export class Store extends EventEmitter {
     for (const k of Object.keys(patch) as (keyof InsightsState)[]) if (patch[k] === undefined) delete (this.state.insights as unknown as Record<string, unknown>)[k]
     this.persist()
     return this.state.insights
+  }
+
+  setAnalytics(patch: Partial<AnalyticsState>): AnalyticsState {
+    this.state.analytics = { ...this.analytics, ...patch }
+    for (const k of Object.keys(patch) as (keyof AnalyticsState)[]) if (patch[k] === undefined) delete (this.state.analytics as unknown as Record<string, unknown>)[k]
+    this.persist()
+    return this.state.analytics
   }
 
   setSecrets(patch: Partial<Secrets>): void {

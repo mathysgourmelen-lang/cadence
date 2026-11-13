@@ -112,6 +112,7 @@ You'll create a free Google Cloud project, which gives Cadence permission to upl
 1. Open [console.cloud.google.com](https://console.cloud.google.com) and sign in with the Google account that owns your YouTube channel. Accept the terms if asked. No billing or credit card is needed.
 2. Click the project picker at the top → **New project** → name it **Cadence** → **Create**. Make sure the new project is selected at the top.
 3. Open [the YouTube Data API v3 page](https://console.cloud.google.com/apis/library/youtube.googleapis.com) and click **Enable**.
+4. Open [the YouTube Analytics API page](https://console.cloud.google.com/apis/library/youtubeanalytics.googleapis.com) and click **Enable** too. The **Analytics** tab uses it for watch time and retention.
 
 ### 3.2 Set up the consent screen
 
@@ -139,7 +140,7 @@ While your app is in **Testing**, Google signs Cadence out of YouTube **every 7 
 1. In Cadence open [Accounts](cadence://accounts) and paste the **Client ID** and **Client secret** into the YouTube card.
 2. Click **Sign in with Google**. Your browser opens.
 3. Choose the account that owns your channel. If you see **"Google hasn't verified this app"**, click **Advanced → Go to Cadence (unsafe)**. It's your own app, so this is expected.
-4. Tick the boxes to allow Cadence to **manage your YouTube videos** and **view your YouTube account**, then click **Continue**.
+4. Tick **every** box (manage your YouTube videos, view your YouTube account, and view YouTube Analytics reports), then click **Continue**.
 5. The browser says "YouTube connected". Switch back to Cadence; your channel appears with a green **Connected** badge.
 
 <!-- anchor:audit -->
@@ -163,6 +164,8 @@ If that happens:
 | Message | What to do |
 | --- | --- |
 | "The YouTube Data API v3 is not enabled" | Do step 3.1.3, wait 2 minutes, then retry. |
+| "The YouTube Analytics API is not enabled" | Do step 3.1.4, wait 2 minutes, then click **Refresh** in Analytics. |
+| Analytics says "Cadence needs permission to read your YouTube analytics" | You connected before the Analytics tab existed, or left a box unticked. In Accounts, click **Disconnect** on YouTube, then **Sign in with Google** again and tick every box. Scheduled posts are kept. |
 | "Access blocked: Cadence has not completed the Google verification process" | Your account isn't a test user and the app isn't published. Do step 3.2.5 or 3.4. |
 | "YouTube sign-in expired or was revoked" | Usually the 7-day limit from step 3.4. Publish the app, then click **Reconnect**. |
 | "Google did not return a refresh token" | Go to [myaccount.google.com/permissions](https://myaccount.google.com/permissions), remove Cadence, then sign in again. |
@@ -204,6 +207,15 @@ If you always export your edits to the same place, open **Library** and click **
 - **Instagram:** Instagram doesn't give a single account total, so Cadence adds up the views of each of your posts (up to your latest 1,000). This needs the `instagram_manage_insights` permission from step 2.5.
 - Numbers refresh when you open the tab (if they're over 15 minutes old), every few hours in the background, or when you click **Refresh**. The growth lines fill in as Cadence checks each day.
 - Posts marked **via Cadence** were published by this app.
+
+### Watch time, skip rate and retention (Analytics tab)
+
+**Analytics** shows how people watch each video, like the dashboards inside Instagram and YouTube Studio. Click a column title to sort; click a row for details.
+
+- **Instagram Reels (latest 30):** views, reach, **average watch time**, **skip rate** (the share of views that swiped away in the first 3 seconds; lower is better), total watch time, shares and saves. It also highlights your best hook and the reel watched longest. For reels posted through Cadence it shows how much of the reel an average play covers.
+- **YouTube (latest 50 uploads):** views, engaged views, **average % viewed** (over 100% means people rewatched, common for Shorts), average view duration, watch time, likes and subscribers gained, plus where your views came from (Shorts feed, search, and so on) over the last 28 days. Click a video for its **audience retention graph**, with a note on whether it's above or below typical for its length.
+- **What isn't available:** Instagram's API has no retention graph, and YouTube's API doesn't share the Shorts "stayed to watch vs swiped away" figure, so Cadence can't show those. Instagram marks skip rate as still in development; if your account doesn't get it yet, Cadence says so.
+- Numbers lag 1 to 3 days behind the apps, the same as their own dashboards' API data.
 
 <!-- anchor:awake -->
 ### Keep Cadence running for Instagram
