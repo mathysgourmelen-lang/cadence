@@ -1,0 +1,411 @@
+// YouTube Shorts uploads through the YouTube Data API v3.
+// OAuth uses the "Desktop app" loopback flow with PKCE. Uploads use Google's
+// resumable upload protocol so a dropped connection resumes instead of restarting.
+
+import { createHash, randomBytes } from 'node:crypto'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { open } from 'node:fs/promises'
+import { ApiError, fetchWithTimeout, readJson } from './http'
+import type { YouTubePrivacy } from '../shared/types'
+
+export const YT_SCOPES = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly']
+
+export interface YouTubeEndpoints {
+  auth: string
+  token: string
+  api: string
+  upload: string
+}
+
+export const DEFAULT_YT_ENDPOINTS: YouTubeEndpoints = {
+  auth: 'https://accounts.google.com/o/oauth2/v2/auth',
+  token: 'https://oauth2.googleapis.com/token',
+  api: 'https://www.googleapis.com/youtube/v3',
+  upload: 'https://www.googleapis.com/upload/youtube/v3'
+}
+
+export interface YouTubeTokens {
+  clientId: string
+  clientSecret: string
+  refreshToken: string
+  accessToken?: string
+  accessTokenExpiresAt?: number
+}
+
+export interface VideoMetadata {
+  title: string
+  description: string
+  tags: string[]
+  categoryId: string
+  privacy: YouTubePrivacy
+  madeForKids: boolean
+  /** ISO time. When set, the video is uploaded as private and YouTube makes it public then. */
+  publishAt?: string
+}
+
+/**
+ * Since June 2026, videos.insert has its own "Video Uploads" quota bucket:
+ * each upload counts once and the default allowance is 100 uploads per day
+ * (resets at midnight Pacific). Cadence counts uploads to show how many are left.
+ */
+export const UPLOAD_QUOTA_COST = 1
+export const DAILY_UPLOADS = 100
+
+const CHUNK = 8 * 1024 * 1024 // multiple of 256 KiB, as Google requires
+
+export function nextPacificMidnight(from = new Date()): Date {
+  // Find the next midnight in America/Los_Angeles, when YouTube quotas reset.
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
+  const parts = Object.fromEntries(fmt.formatToParts(from).map((p) => [p.type, p.value]))
+  const h = Number(parts.hour) % 24
+  const secondsIntoDay = h * 3600 + Number(parts.minute) * 60 + Number(parts.second)
+  return new Date(from.getTime() + (86400 - secondsIntoDay) * 1000 + 60_000)
+}
+
+export function googleError(status: number, body: any, context: string): ApiError {
+  const err = body?.error
+  const reason: string | undefined = err?.errors?.[0]?.reason ?? (typeof err === 'string' ? err : undefined)
+  const message: string = err?.message || body?.error_description || body?._text || `HTTP ${status}`
+
+  if (reason === 'invalid_grant' || reason === 'unauthorized_client' || reason === 'invalid_client') {
+    return new ApiError(
+      `YouTube sign-in expired or was revoked. Reconnect YouTube in Accounts. (${body?.error_description || reason})`,
+      { status, retriable: false, authError: true, code: reason, raw: body }
+    )
+  }
+  if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') {
+    return new ApiError('YouTube\'s daily API quota is used up. Cadence will retry after it resets at midnight Pacific time.', {
+      status,
+      retriable: true,
+      retryAfter: nextPacificMidnight(),
+      code: reason,
+      raw: body
+    })
+  }
+  if (reason === 'uploadLimitExceeded') {
+    return new ApiError('YouTube says this channel has hit its upload limit for now. Cadence will retry in a few hours.', {
+      status,
+      retriable: true,
+      retryAfter: new Date(Date.now() + 6 * 3600 * 1000),
+      code: reason,
+      raw: body
+    })
+  }
+  if (reason === 'rateLimitExceeded' || reason === 'userRateLimitExceeded') {
+    return new ApiError('YouTube is rate limiting requests. Retrying shortly.', { status, retriable: true, code: reason, raw: body })
+  }
+  if (status === 401) {
+    return new ApiError(`YouTube sign-in is no longer valid. Reconnect YouTube in Accounts. (${message})`, {
+      status,
+      retriable: false,
+      authError: true,
+      code: reason,
+      raw: body
+    })
+  }
+  if (reason === 'youtubeSignupRequired') {
+    return new ApiError('This Google account has no YouTube channel yet. Create one at youtube.com, then reconnect.', {
+      status,
+      retriable: false,
+      code: reason,
+      raw: body
+    })
+  }
+  if (status === 403 && /has not been used|is disabled|accessNotConfigured/i.test(message + (reason ?? ''))) {
+    return new ApiError('The YouTube Data API v3 is not enabled in your Google Cloud project. Enable it, wait a few minutes, then retry.', {
+      status,
+      retriable: false,
+      code: reason,
+      raw: body
+    })
+  }
+  const retriable = status >= 500 || status === 429 || status === 408
+  return new ApiError(`${context}: ${message}`, { status, retriable, code: reason, raw: body })
+}
+
+export function pkcePair(): { verifier: string; challenge: string } {
+  const verifier = randomBytes(48).toString('base64url')
+  const challenge = createHash('sha256').update(verifier).digest('base64url')
+  return { verifier, challenge }
+}
+
+const SUCCESS_PAGE = `<!doctype html><meta charset="utf-8"><title>Cadence</title>
+<body style="font-family:-apple-system,system-ui,sans-serif;background:#0b0b10;color:#f4f4f6;display:grid;place-items:center;height:100vh;margin:0">
+<div style="text-align:center"><div style="font-size:44px">✓</div><h2 style="margin:8px 0">YouTube connected</h2>
+<p style="opacity:.7">You can close this tab and go back to Cadence.</p></div></body>`
+
+const FAIL_PAGE = (msg: string) => `<!doctype html><meta charset="utf-8"><title>Cadence</title>
+<body style="font-family:-apple-system,system-ui,sans-serif;background:#0b0b10;color:#f4f4f6;display:grid;place-items:center;height:100vh;margin:0">
+<div style="text-align:center"><h2>Connection failed</h2><p style="opacity:.7">${msg.replace(/[<>&]/g, '')}</p></div></body>`
+
+export class YouTubeClient {
+  constructor(private readonly endpoints: YouTubeEndpoints = DEFAULT_YT_ENDPOINTS) {}
+
+  /**
+   * Runs the OAuth loopback flow. `openBrowser` opens the consent URL in the user's browser.
+   * Resolves with a refresh token once the user approves.
+   */
+  async authorize(
+    clientId: string,
+    clientSecret: string,
+    openBrowser: (url: string) => void,
+    timeoutMs = 5 * 60 * 1000
+  ): Promise<YouTubeTokens> {
+    const { verifier, challenge } = pkcePair()
+    const state = randomBytes(16).toString('hex')
+    let server: Server | undefined
+
+    const code = await new Promise<{ code: string; redirectUri: string }>((resolve, reject) => {
+      let redirectUri = ''
+      const timer = setTimeout(() => {
+        reject(new ApiError('Google sign-in timed out. Try again.', { retriable: false }))
+      }, timeoutMs)
+      server = createServer((req, res) => {
+        const u = new URL(req.url ?? '/', 'http://127.0.0.1')
+        if (u.pathname !== '/') {
+          res.writeHead(404).end()
+          return
+        }
+        const err = u.searchParams.get('error')
+        const gotState = u.searchParams.get('state')
+        const gotCode = u.searchParams.get('code')
+        if (err) {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(FAIL_PAGE(err))
+          clearTimeout(timer)
+          reject(new ApiError(err === 'access_denied' ? 'Google sign-in was cancelled.' : `Google sign-in failed: ${err}`, { retriable: false }))
+          return
+        }
+        if (!gotCode || gotState !== state) {
+          res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' }).end(FAIL_PAGE('Invalid response from Google.'))
+          return
+        }
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(SUCCESS_PAGE)
+        clearTimeout(timer)
+        resolve({ code: gotCode, redirectUri })
+      })
+      server.on('error', (e) => {
+        clearTimeout(timer)
+        reject(new ApiError(`Could not start the sign-in listener: ${e.message}`, { retriable: false }))
+      })
+      server.listen(0, '127.0.0.1', () => {
+        const port = (server!.address() as AddressInfo).port
+        redirectUri = `http://127.0.0.1:${port}`
+        const u = new URL(this.endpoints.auth)
+        u.searchParams.set('client_id', clientId)
+        u.searchParams.set('redirect_uri', redirectUri)
+        u.searchParams.set('response_type', 'code')
+        u.searchParams.set('scope', YT_SCOPES.join(' '))
+        u.searchParams.set('access_type', 'offline')
+        u.searchParams.set('prompt', 'consent')
+        u.searchParams.set('include_granted_scopes', 'true')
+        u.searchParams.set('code_challenge', challenge)
+        u.searchParams.set('code_challenge_method', 'S256')
+        u.searchParams.set('state', state)
+        openBrowser(u.toString())
+      })
+    }).finally(() => {
+      server?.close()
+      server?.closeAllConnections?.()
+    })
+
+    const res = await fetchWithTimeout(this.endpoints.token, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: code.code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: code.redirectUri,
+        grant_type: 'authorization_code',
+        code_verifier: verifier
+      }).toString()
+    })
+    const body = await readJson(res)
+    if (!res.ok || body.error) throw googleError(res.status, body, 'Google sign-in failed')
+    if (!body.refresh_token) {
+      throw new ApiError(
+        'Google did not return a refresh token. Remove Cadence from myaccount.google.com/permissions and connect again.',
+        { retriable: false, raw: body }
+      )
+    }
+    const granted = String(body.scope ?? '')
+    if (granted && !granted.includes('youtube.upload')) {
+      throw new ApiError('You need to tick the "Manage your YouTube videos" permission on the Google screen. Connect again.', {
+        retriable: false
+      })
+    }
+    return {
+      clientId,
+      clientSecret,
+      refreshToken: body.refresh_token,
+      accessToken: body.access_token,
+      accessTokenExpiresAt: Date.now() + (Number(body.expires_in) || 3600) * 1000
+    }
+  }
+
+  /** Returns a valid access token, refreshing it when needed. Mutates `tokens`. */
+  async accessToken(tokens: YouTubeTokens): Promise<string> {
+    if (tokens.accessToken && tokens.accessTokenExpiresAt && tokens.accessTokenExpiresAt - Date.now() > 120_000) return tokens.accessToken
+    const res = await fetchWithTimeout(this.endpoints.token, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: tokens.clientId,
+        client_secret: tokens.clientSecret,
+        refresh_token: tokens.refreshToken,
+        grant_type: 'refresh_token'
+      }).toString()
+    })
+    const body = await readJson(res)
+    if (!res.ok || body.error) throw googleError(res.status, body, 'Could not refresh the YouTube sign-in')
+    tokens.accessToken = body.access_token
+    tokens.accessTokenExpiresAt = Date.now() + (Number(body.expires_in) || 3600) * 1000
+    return tokens.accessToken!
+  }
+
+  async channel(tokens: YouTubeTokens): Promise<{ id: string; title: string; thumbnailUrl?: string }> {
+    const token = await this.accessToken(tokens)
+    const res = await fetchWithTimeout(`${this.endpoints.api}/channels?part=snippet&mine=true`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    const body = await readJson(res)
+    if (!res.ok) throw googleError(res.status, body, 'Could not read your YouTube channel')
+    const ch = body.items?.[0]
+    if (!ch) throw new ApiError('This Google account has no YouTube channel. Create one at youtube.com, then connect again.', { retriable: false })
+    return { id: ch.id, title: ch.snippet?.title ?? 'YouTube channel', thumbnailUrl: ch.snippet?.thumbnails?.default?.url }
+  }
+
+  static buildResource(meta: VideoMetadata): any {
+    const status: Record<string, unknown> = {
+      privacyStatus: meta.publishAt ? 'private' : meta.privacy,
+      selfDeclaredMadeForKids: meta.madeForKids,
+      embeddable: true
+    }
+    if (meta.publishAt) status.publishAt = new Date(meta.publishAt).toISOString()
+    const tags = meta.tags.map((t) => t.trim()).filter(Boolean)
+    return {
+      snippet: {
+        title: meta.title.trim(),
+        description: meta.description,
+        categoryId: meta.categoryId || '22',
+        ...(tags.length ? { tags } : {})
+      },
+      status
+    }
+  }
+
+  /** Starts a resumable upload session and returns its upload URL. */
+  async startUpload(tokens: YouTubeTokens, meta: VideoMetadata, size: number, mimeType: string): Promise<string> {
+    const token = await this.accessToken(tokens)
+    const res = await fetchWithTimeout(`${this.endpoints.upload}/videos?uploadType=resumable&part=snippet,status&notifySubscribers=true`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json; charset=UTF-8',
+        'X-Upload-Content-Length': String(size),
+        'X-Upload-Content-Type': mimeType
+      },
+      body: JSON.stringify(YouTubeClient.buildResource(meta))
+    })
+    if (!res.ok) throw googleError(res.status, await readJson(res), 'YouTube rejected the upload')
+    await res.arrayBuffer().catch(() => undefined)
+    const location = res.headers.get('location')
+    if (!location) throw new ApiError('YouTube did not return an upload URL.', { retriable: true })
+    return location
+  }
+
+  /**
+   * Asks the upload session how many bytes it already has.
+   * Returns { done: video } if the upload already completed, or { offset }.
+   * Throws a non-retriable error with code 'session_expired' if the session is gone.
+   */
+  async queryUpload(tokens: YouTubeTokens, uploadUrl: string, size: number): Promise<{ offset: number; video?: any }> {
+    const token = await this.accessToken(tokens)
+    const res = await fetchWithTimeout(uploadUrl, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Length': '0', 'Content-Range': `bytes */${size}` }
+    })
+    if (res.status === 200 || res.status === 201) return { offset: size, video: await readJson(res) }
+    if (res.status === 308) {
+      await res.arrayBuffer().catch(() => undefined)
+      const range = res.headers.get('range')
+      const m = range?.match(/bytes=0-(\d+)/)
+      return { offset: m ? Number(m[1]) + 1 : 0 }
+    }
+    const body = await readJson(res)
+    if (res.status === 404 || res.status === 410) {
+      throw new ApiError('The YouTube upload session expired. Starting a fresh upload.', { status: res.status, retriable: true, code: 'session_expired' })
+    }
+    throw googleError(res.status, body, 'Could not resume the YouTube upload')
+  }
+
+  /** Uploads (or resumes) the file. Returns the created video resource. */
+  async uploadFile(
+    tokens: YouTubeTokens,
+    uploadUrl: string,
+    filePath: string,
+    size: number,
+    onProgress?: (fraction: number) => void,
+    startOffset = 0
+  ): Promise<any> {
+    const fh = await open(filePath, 'r')
+    try {
+      let offset = startOffset
+      let stalls = 0
+      onProgress?.(offset / size)
+      while (offset < size) {
+        const len = Math.min(CHUNK, size - offset)
+        const buf = Buffer.alloc(len)
+        const { bytesRead } = await fh.read(buf, 0, len, offset)
+        if (bytesRead !== len) throw new ApiError('The video file changed while uploading.', { retriable: false })
+        const token = await this.accessToken(tokens)
+        const res = await fetchWithTimeout(uploadUrl, {
+          method: 'PUT',
+          timeoutMs: 10 * 60 * 1000,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Length': String(len),
+            'Content-Range': `bytes ${offset}-${offset + len - 1}/${size}`
+          },
+          body: buf
+        })
+        if (res.status === 200 || res.status === 201) {
+          onProgress?.(1)
+          return await readJson(res)
+        }
+        if (res.status === 308) {
+          await res.arrayBuffer().catch(() => undefined)
+          const range = res.headers.get('range')
+          const m = range?.match(/bytes=0-(\d+)/)
+          const newOffset = m ? Number(m[1]) + 1 : 0
+          stalls = newOffset <= offset ? stalls + 1 : 0
+          if (stalls >= 5) throw new ApiError('YouTube stopped accepting upload data. Retrying later.', { retriable: true })
+          offset = newOffset
+          onProgress?.(offset / size)
+          continue
+        }
+        const body = await readJson(res)
+        if (res.status === 404 || res.status === 410) {
+          throw new ApiError('The YouTube upload session expired. Starting a fresh upload.', { status: res.status, retriable: true, code: 'session_expired' })
+        }
+        throw googleError(res.status, body, 'YouTube upload failed')
+      }
+      // All bytes acknowledged with 308 but no final response: ask for the result.
+      const q = await this.queryUpload(tokens, uploadUrl, size)
+      if (q.video) return q.video
+      throw new ApiError('YouTube did not confirm the upload. Retrying.', { retriable: true })
+    } finally {
+      await fh.close()
+    }
+  }
+}

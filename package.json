@@ -1,0 +1,33 @@
+{
+  "name": "cadence",
+  "productName": "Cadence",
+  "version": "1.0.0",
+  "description": "Schedule and publish Instagram Reels and YouTube Shorts from your Mac.",
+  "main": "./out/main/index.js",
+  "author": "max",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "dist": "npm run typecheck && npm run build && electron-builder --mac --publish never",
+    "demo": "vite --config vite.demo.config.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^38.8.6",
+    "electron-builder": "^26.0.20",
+    "electron-vite": "^4.0.1",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.8",
+    "vitest": "^3.2.7"
+  }
+}
