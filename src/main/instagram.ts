@@ -118,8 +118,12 @@ export class InstagramClient {
   }
 
   /** Lists Facebook Pages the user manages that have an Instagram professional account linked. */
+  /** Names of the Pages seen by the last listInstagramAccounts call (to explain an empty result). */
+  lastPageNames: string[] = []
+
   async listInstagramAccounts(userToken: string): Promise<(InstagramPageChoice & { pageToken: string })[]> {
     const out: (InstagramPageChoice & { pageToken: string })[] = []
+    this.lastPageNames = []
     let next: string | undefined = this.url('me/accounts', {
       fields: 'id,name,access_token,instagram_business_account{id,username,profile_picture_url}',
       limit: 100,
@@ -131,6 +135,7 @@ export class InstagramClient {
       const body = await readJson(res)
       if (!res.ok || body?.error) throw graphError(res.status, body, 'Could not list your Facebook Pages')
       for (const p of body.data ?? []) {
+        if (p.name) this.lastPageNames.push(p.name)
         const ig = p.instagram_business_account
         if (ig?.id && p.access_token) {
           out.push({

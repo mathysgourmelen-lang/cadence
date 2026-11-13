@@ -471,8 +471,11 @@ function registerIpc(): void {
     const longToken = await client.exchangeToken(appId, appSecret, token)
     const choices = await client.listInstagramAccounts(longToken)
     if (!choices.length) {
+      const pages = client.lastPageNames
       throw new PostError(
-        'No Instagram professional account was found. Make sure your Instagram is a Business or Creator account linked to a Facebook Page, and that you selected that Page when generating the token.'
+        pages.length
+          ? `Your token can see the Facebook Page${pages.length > 1 ? 's' : ''} ${pages.map((n) => `"${n}"`).join(', ')}, but no Instagram professional account is linked to ${pages.length > 1 ? 'them' : 'it'}. In the Instagram app go to Edit profile → Page → Connect, pick this Page, then generate a new token. (Setup Guide, step 2.2)`
+          : 'Your token can\'t see any Facebook Page. Generate the token again and, in the Facebook window, tick your Page (or "Opt in to all current and future Pages"). Also check that pages_show_list is in the permission list.'
       )
     }
     pendingIgChoices = choices
