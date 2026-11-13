@@ -66,9 +66,10 @@ Keep this tab open.
 1. Open the [Graph API Explorer](https://developers.facebook.com/tools/explorer/).
 2. On the right, under **Meta App**, select **Cadence** (the app you just made).
 3. Under **User or Page**, choose **Get User Access Token** (or **User Token**).
-4. Under **Permissions**, click **Add a permission** and add all five of these:
+4. Under **Permissions**, click **Add a permission** and add all six of these:
    - `instagram_basic`
    - `instagram_content_publish`
+   - `instagram_manage_insights` (lets the **Views** tab read your view counts)
    - `pages_show_list`
    - `pages_read_engagement`
    - `business_management`
@@ -93,7 +94,8 @@ You should see your @username with a green **Connected** badge.
 | Message | What to do |
 | --- | --- |
 | "No Instagram professional account was found" | Check 2.1 and 2.2, then generate a new token in 2.5 and make sure you ticked both the Page and the Instagram account in the Facebook window. |
-| "Instagram permission missing" | One of the five permissions in 2.5 is missing. Generate a new token with all five. |
+| "Instagram permission missing" | One of the six permissions in 2.5 is missing. Generate a new token with all six. |
+| Views tab says Instagram "did not allow Cadence to read views" | The token was made without `instagram_manage_insights`. Repeat 2.5 with that permission added, then 2.6. Your scheduled posts are not affected. |
 | "Instagram sign-in expired or was revoked" | This happens if you change your Facebook password, remove the app's access, or lose admin access to the Page. Repeat 2.5 and 2.6. |
 | "Page Publishing Authorization" error | Facebook wants extra verification for your Page. Open the Page on Facebook and follow the prompt (usually confirming your identity), then retry. |
 | "Instagram could not process this video" | The file is in a format Instagram rejects. Re-export as H.264, AAC audio, 30 fps, 1080×1920. |
@@ -184,6 +186,24 @@ The right side shows a live phone preview and checks every video against each pl
 - **YouTube:** Cadence uploads right away and YouTube publishes at your time on its own.
 - If something fails because of the network, Cadence retries automatically with increasing delays. Real problems (for example a rejected video) show up in **History → Needs attention** with the exact reason and a **Retry** button.
 - Cadence never posts the same video twice: if it was interrupted mid-publish, it checks with Instagram before trying again.
+
+### Your video folder (Library tab)
+
+If you always export your edits to the same place, open **Library** and click **Choose folder** (for example `Movies › Exports`). Cadence lists every MP4 and MOV in it and its subfolders, newest first, and updates the list when you add files.
+
+- Each video shows its length, shape, and whether it's ready for a **Reel** and a **Short** (green tick, yellow warning, or red cross; hover for the reason).
+- Badges show which videos are already **Posted** or **In queue**, so you don't post the same clip twice. **Not posted** filters to the fresh ones.
+- Hover a video to play it. Click to select several (Shift-click selects a range), then **Create posts**. Or hover one and click **Post this**.
+- Your files are never moved or changed. Cadence makes its own copy when you schedule, so you can tidy the folder afterwards.
+
+### Your views (Views tab)
+
+**Views** shows the total views on each connected account, a combined total, how much they grew over the last 7, 30 or 90 days, and your most-viewed posts.
+
+- **YouTube:** the total is YouTube's own lifetime view count for your channel. Top videos come from your latest 200 uploads.
+- **Instagram:** Instagram doesn't give a single account total, so Cadence adds up the views of each of your posts (up to your latest 1,000). This needs the `instagram_manage_insights` permission from step 2.5.
+- Numbers refresh when you open the tab (if they're over 15 minutes old), every few hours in the background, or when you click **Refresh**. The growth lines fill in as Cadence checks each day.
+- Posts marked **via Cadence** were published by this app.
 
 <!-- anchor:awake -->
 ### Keep Cadence running for Instagram

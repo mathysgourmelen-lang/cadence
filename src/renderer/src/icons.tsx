@@ -222,6 +222,43 @@ export const Icon = {
       <path d="m15 4 1 2 2 1-2 1-1 2-1-2-2-1 2-1ZM4 20 15 9" />
     </Svg>
   ),
+  Library: (p: P) => (
+    <Svg {...p}>
+      <rect x="3" y="3" width="7.5" height="7.5" rx="2" />
+      <rect x="13.5" y="3" width="7.5" height="7.5" rx="2" />
+      <rect x="3" y="13.5" width="7.5" height="7.5" rx="2" />
+      <path d="M15.5 14.5v5l4-2.5Z" />
+    </Svg>
+  ),
+  Eye: (p: P) => (
+    <Svg {...p}>
+      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </Svg>
+  ),
+  Chart: (p: P) => (
+    <Svg {...p}>
+      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+    </Svg>
+  ),
+  Search: (p: P) => (
+    <Svg {...p}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </Svg>
+  ),
+  Users: (p: P) => (
+    <Svg {...p}>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5" />
+    </Svg>
+  ),
+  TrendUp: (p: P) => (
+    <Svg {...p}>
+      <path d="m3 17 6-6 4 4 8-8" />
+      <path d="M15 7h6v6" />
+    </Svg>
+  ),
   Grip: (p: P) => (
     <Svg {...p}>
       <circle cx="9" cy="6" r="1" />

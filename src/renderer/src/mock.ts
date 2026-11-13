@@ -67,8 +67,31 @@ function post(i: number, name: string, at: string | null, ig: Partial<Post['inst
 
 const settings: Settings = { ...DEFAULT_SETTINGS, snippets: [{ id: 's1', name: 'Core tags', text: '#reels #creator #fyp' }, { id: 's2', name: 'Link in bio', text: 'Full video → link in bio 🔗' }] }
 
+const day = (n: number) => {
+  const d = new Date(Date.now() - n * 86400_000)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const stat = (id: string, title: string, views: number, daysAgo: number, thumb: number) => ({
+  id,
+  title,
+  views,
+  likes: Math.round(views * 0.06),
+  comments: Math.round(views * 0.004),
+  publishedAt: new Date(Date.now() - daysAgo * 86400_000).toISOString(),
+  thumbnailUrl: `/demo/thumb${thumb}.jpg`,
+  url: 'https://example.com'
+})
+const igTop = [stat('i1', '5am routine that actually stuck ☀️', 412_300, 9, 1), stat('i2', 'Desk setup tour 2026 🖥️', 188_900, 21, 2), stat('i3', 'Latte art in slow motion ☕️', 96_400, 3, 3)]
+const ytTop = [stat('y1', 'My 5am routine that actually stuck ☀️', 1_204_000, 9, 1), stat('y2', 'Golden hour in Shibuya', 342_500, 30, 3), stat('y3', 'Desk setup tour 2026 🖥️', 120_200, 21, 2)]
+
 let state: AppSnapshot = {
   version: '1.0.0',
+  insights: {
+    refreshing: false,
+    history: Array.from({ length: 30 }, (_, i) => ({ day: day(29 - i), instagram: 1_480_000 + i * 9_800 + (i % 4) * 2_100, youtube: 3_900_000 + i * 31_000 + (i % 3) * 7_000 })),
+    instagram: { fetchedAt: new Date().toISOString(), totalViews: 1_772_400, followers: 48_210, postCount: 212, countedPosts: 212, top: igTop, recent: igTop },
+    youtube: { fetchedAt: new Date().toISOString(), totalViews: 4_830_000, followers: 61_400, postCount: 148, countedPosts: 148, top: ytTop, recent: ytTop }
+  },
   settings,
   accounts: {
     instagram: { connected: true, username: 'max.creates', pageName: 'Max Creates', igUserId: '1784', appId: '123', hasSecret: true },
@@ -170,6 +193,45 @@ export const mockApi: CadenceApi = {
   async youtubeDisconnect() {
     state = { ...state, accounts: { ...state.accounts, youtube: { connected: false, quotaUsedToday: 0 } } }
     emit()
+  },
+  async importPaths() {
+    return this.pickVideos()
+  },
+  async listFolder() {
+    const names = ['morning-routine-v3.mp4', 'desk-setup-tour.mp4', 'coffee-art-slowmo.mp4', 'city-walk-tokyo.mp4', 'gym-progress.mp4', 'Raw/landscape-vlog.mp4']
+    return {
+      folder: state.settings.libraryFolder ?? '/Users/max/Movies/Exports',
+      exists: true,
+      truncated: false,
+      scannedAt: new Date().toISOString(),
+      videos: names.map((n, i) => ({
+        path: `/Users/max/Movies/Exports/${n}`,
+        relPath: n,
+        name: n.split('/').pop()!,
+        sizeBytes: 20_000_000 + i * 3_000_000,
+        mtimeMs: Date.now() - i * 86400_000,
+        media: media(n.includes('landscape') ? { width: 1920, height: 1080, durationSec: 212 } : { durationSec: 12 + i * 7 }),
+        thumbUrl: `/demo/thumb${(i % 3) + 1}.jpg`
+      }))
+    }
+  },
+  async chooseFolder() {
+    state = { ...state, settings: { ...state.settings, libraryFolder: '/Users/max/Movies/Exports' } }
+    emit()
+    return this.listFolder()
+  },
+  async saveFolderThumb() {
+    return undefined
+  },
+  onFolderChanged() {
+    return () => undefined
+  },
+  folderUrl(rel) {
+    return `/demo/clip${(rel.length % 3) + 1}.mp4`
+  },
+  async refreshInsights() {
+    await delay(900)
+    return state.insights
   },
   async openExternal(url) {
     window.open(url, '_blank')

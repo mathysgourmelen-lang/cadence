@@ -253,4 +253,70 @@ export class InstagramClient {
     )
     return body.data ?? []
   }
+
+  // ---------- Stats ----------
+
+  async accountStats(creds: InstagramCredentials): Promise<{ followers?: number; mediaCount?: number }> {
+    const body = await this.get(
+      creds.igUserId,
+      { fields: 'followers_count,media_count', access_token: creds.accessToken },
+      'Could not read the Instagram account'
+    )
+    return { followers: body.followers_count, mediaCount: body.media_count }
+  }
+
+  /**
+   * One page of the account's posts. With `insights`, each post carries its view count
+   * (needs the instagram_manage_insights permission).
+   */
+  async mediaPage(creds: InstagramCredentials, opts: { after?: string; insights: boolean; limit?: number }): Promise<{ items: IgMediaItem[]; after?: string }> {
+    const fields = ['id', 'caption', 'media_type', 'media_product_type', 'timestamp', 'permalink', 'thumbnail_url', 'media_url', 'like_count', 'comments_count']
+    if (opts.insights) fields.push('insights.metric(views)')
+    const body = await this.get(
+      `${creds.igUserId}/media`,
+      { fields: fields.join(','), limit: opts.limit ?? 50, after: opts.after, access_token: creds.accessToken },
+      'Could not list your Instagram posts'
+    )
+    const items: IgMediaItem[] = (body.data ?? []).map((m: any) => ({
+      id: m.id,
+      caption: m.caption,
+      mediaType: m.media_type,
+      productType: m.media_product_type,
+      timestamp: m.timestamp,
+      permalink: m.permalink,
+      thumbnailUrl: m.thumbnail_url ?? (m.media_type === 'VIDEO' ? undefined : m.media_url),
+      likes: m.like_count,
+      comments: m.comments_count,
+      views: opts.insights ? insightValue(m.insights) : undefined
+    }))
+    return { items, after: body.paging?.next ? body.paging?.cursors?.after : undefined }
+  }
+
+  /** Views of a single post. */
+  async mediaViews(creds: InstagramCredentials, mediaId: string): Promise<number | null> {
+    const body = await this.get(`${mediaId}/insights`, { metric: 'views', access_token: creds.accessToken }, 'Could not read post views')
+    return insightValue(body)
+  }
+}
+
+export interface IgMediaItem {
+  id: string
+  caption?: string
+  mediaType?: string
+  productType?: string
+  timestamp?: string
+  permalink?: string
+  thumbnailUrl?: string
+  likes?: number
+  comments?: number
+  /** undefined = not requested, null = not available for this post. */
+  views?: number | null
+}
+
+/** Reads a metric value from an insights response ({ data: [{ values: [{ value }] }] or total_value). */
+export function insightValue(insights: any): number | null {
+  const d = insights?.data?.[0]
+  if (!d) return null
+  const v = d.total_value?.value ?? d.values?.[0]?.value
+  return typeof v === 'number' ? v : null
 }

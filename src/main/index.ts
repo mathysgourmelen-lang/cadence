@@ -19,9 +19,11 @@ import { join } from 'node:path'
 import { Store, type Cipher } from './store'
 import { Scheduler } from './scheduler'
 import { InstagramClient, type InstagramCredentials } from './instagram'
-import { YouTubeClient } from './youtube'
+import { YouTubeClient, type YouTubeTokens } from './youtube'
 import { ApiError } from './http'
 import { cleanLibrary, importVideo, saveThumbnail, serveLibraryFile } from './media'
+import { FolderLibrary } from './folder'
+import { instagramInsights, recordHistory, youtubeInsights } from './insights'
 import { applyAction, deletePost, PostError, reschedule, savePost, type PostAction } from './posts'
 import type { AppSnapshot, InstagramPageChoice, Platform, PostDraftInput, Settings } from '../shared/types'
 import { isUpcoming } from '../shared/status'
@@ -38,6 +40,8 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 let store: Store
+let folderLib: FolderLibrary
+let insightsRun: Promise<void> | null = null
 let scheduler: Scheduler
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -61,7 +65,7 @@ function instagram(): InstagramClient {
 }
 
 function snapshot(): AppSnapshot {
-  return { posts: store.posts, settings: store.settings, accounts: store.accounts, version: app.getVersion() }
+  return { posts: store.posts, settings: store.settings, accounts: store.accounts, insights: store.insights, version: app.getVersion() }
 }
 
 function friendly(err: unknown): string {
@@ -228,10 +232,12 @@ function buildMenu(): void {
       label: 'View',
       submenu: [
         { label: 'Compose', accelerator: 'Cmd+1', click: () => showWindow('compose') },
-        { label: 'Queue', accelerator: 'Cmd+2', click: () => showWindow('queue') },
-        { label: 'Calendar', accelerator: 'Cmd+3', click: () => showWindow('calendar') },
-        { label: 'History', accelerator: 'Cmd+4', click: () => showWindow('history') },
-        { label: 'Accounts', accelerator: 'Cmd+5', click: () => showWindow('accounts') },
+        { label: 'Library', accelerator: 'Cmd+2', click: () => showWindow('library') },
+        { label: 'Queue', accelerator: 'Cmd+3', click: () => showWindow('queue') },
+        { label: 'Calendar', accelerator: 'Cmd+4', click: () => showWindow('calendar') },
+        { label: 'History', accelerator: 'Cmd+5', click: () => showWindow('history') },
+        { label: 'Views', accelerator: 'Cmd+6', click: () => showWindow('views') },
+        { label: 'Accounts', accelerator: 'Cmd+7', click: () => showWindow('accounts') },
         { type: 'separator' },
         ...(isDev ? ([{ role: 'reload' }, { role: 'toggleDevTools' }] as MenuItemConstructorOptions[]) : []),
         { role: 'togglefullscreen' }
@@ -305,6 +311,53 @@ async function checkAccounts(): Promise<void> {
       if (err instanceof ApiError && err.opts.authError) store.setAccounts({ youtube: { ...store.accounts.youtube, problem: err.message } })
     }
   }
+}
+
+// ---------------- views / insights ----------------
+
+function ytTokensFromStore(): YouTubeTokens | null {
+  const acc = store.accounts.youtube
+  const sec = store.getSecrets().youtube
+  if (!acc.connected || !acc.clientId || !sec?.clientSecret || !sec.refreshToken) return null
+  return { clientId: acc.clientId, clientSecret: sec.clientSecret, refreshToken: sec.refreshToken, accessToken: sec.accessToken, accessTokenExpiresAt: sec.accessTokenExpiresAt }
+}
+
+/** Fetches view counts for every connected account. Concurrent calls share one run. */
+function refreshInsights(): Promise<void> {
+  if (insightsRun) return insightsRun
+  insightsRun = (async () => {
+    store.setInsights({ refreshing: true })
+    const acc = store.accounts
+    const igSec = store.getSecrets().instagram
+    const tokens = ytTokensFromStore()
+    const [ig, yt] = await Promise.allSettled([
+      acc.instagram.connected && acc.instagram.igUserId && igSec
+        ? instagramInsights(instagram(), { igUserId: acc.instagram.igUserId, accessToken: igSec.accessToken }, store.posts)
+        : Promise.resolve(undefined),
+      tokens ? youtubeInsights(youtube, tokens, store.posts) : Promise.resolve(undefined)
+    ])
+    if (tokens) {
+      const sec = store.getSecrets().youtube
+      if (sec && sec.accessToken !== tokens.accessToken) {
+        store.setSecrets({ youtube: { ...sec, accessToken: tokens.accessToken, accessTokenExpiresAt: tokens.accessTokenExpiresAt } })
+      }
+    }
+    const cur = store.insights
+    const igData = ig.status === 'fulfilled' ? ig.value : undefined
+    const ytData = yt.status === 'fulfilled' ? yt.value : undefined
+    store.setInsights({
+      // Keep the last good numbers when a refresh fails; drop them when the account is disconnected.
+      instagram: acc.instagram.connected ? (igData ?? cur.instagram) : undefined,
+      youtube: acc.youtube.connected ? (ytData ?? cur.youtube) : undefined,
+      instagramError: ig.status === 'rejected' ? friendly(ig.reason) : undefined,
+      youtubeError: yt.status === 'rejected' ? friendly(yt.reason) : undefined,
+      history: recordHistory(cur.history, { instagram: igData?.totalViews ?? undefined, youtube: ytData?.totalViews ?? undefined }),
+      refreshing: false
+    })
+  })().finally(() => {
+    insightsRun = null
+  })
+  return insightsRun
 }
 
 // ---------------- IPC ----------------
@@ -415,6 +468,7 @@ function registerIpc(): void {
   handle('instagram:disconnect', async () => {
     store.setSecrets({ instagram: undefined })
     store.setAccounts({ instagram: { connected: false } })
+    store.setInsights({ instagram: undefined, instagramError: undefined })
   })
 
   handle('instagram:limit', async () => {
@@ -463,6 +517,31 @@ function registerIpc(): void {
   handle('youtube:disconnect', async () => {
     store.setSecrets({ youtube: undefined })
     store.setAccounts({ youtube: { connected: false, quotaUsedToday: 0 } })
+    store.setInsights({ youtube: undefined, youtubeError: undefined })
+  })
+
+  handle('folder:list', async () => {
+    folderLib.watch(store.settings.libraryFolder)
+    return folderLib.list(store.settings.libraryFolder)
+  })
+
+  handle('folder:choose', async () => {
+    const res = await dialog.showOpenDialog(mainWindow!, {
+      title: 'Choose your video folder',
+      buttonLabel: 'Use This Folder',
+      defaultPath: store.settings.libraryFolder ?? app.getPath('videos'),
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (!res.canceled && res.filePaths[0]) store.setSettings({ libraryFolder: res.filePaths[0] })
+    folderLib.watch(store.settings.libraryFolder)
+    return folderLib.list(store.settings.libraryFolder)
+  })
+
+  handle('folder:thumb', async (path: string, dataUrl: string) => folderLib.saveThumb(store.settings.libraryFolder, String(path), String(dataUrl)))
+
+  handle('insights:refresh', async () => {
+    await refreshInsights()
+    return store.insights
   })
 
   handle('shell:open', async (url: string) => {
@@ -488,7 +567,20 @@ app.whenReady().then(async () => {
   applyAppearance(store.settings)
   applyLoginItem(store.settings)
 
-  protocol.handle('cadence-media', (req) => serveLibraryFile(store.libraryDir, req))
+  folderLib = new FolderLibrary(join(store.dataDir, 'thumbs'), () => mainWindow?.webContents.send('folder:changed'))
+  protocol.handle('cadence-media', (req) => {
+    const host = new URL(req.url).host
+    if (host === 'folder' || host === 'thumbs') return folderLib.serve(store.settings.libraryFolder, host, req)
+    return serveLibraryFile(store.libraryDir, req)
+  })
+  // Keep view counts fresh in the background so the Views tab has a daily history.
+  const insightsTick = () => {
+    const a = store.accounts
+    const last = Math.max(Date.parse(store.insights.instagram?.fetchedAt ?? '') || 0, Date.parse(store.insights.youtube?.fetchedAt ?? '') || 0)
+    if ((a.instagram.connected || a.youtube.connected) && Date.now() - last > 3 * 3600 * 1000) void refreshInsights().catch(() => undefined)
+  }
+  setTimeout(insightsTick, 30_000)
+  setInterval(insightsTick, 30 * 60 * 1000)
 
   scheduler = new Scheduler({
     store,

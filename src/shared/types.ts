@@ -145,6 +145,8 @@ export interface Settings {
   snippets: Snippet[]
   paused: boolean
   notifications: boolean
+  /** Folder on the Mac that the Library tab shows (e.g. where you export your edits). */
+  libraryFolder: string | null
 }
 
 export interface Snippet {
@@ -212,7 +214,79 @@ export interface AppSnapshot {
   posts: Post[]
   settings: Settings
   accounts: AccountsState
+  insights: InsightsState
   version: string
+}
+
+// ---------- Library folder ----------
+
+export interface FolderVideo {
+  path: string
+  /** Path relative to the library folder, e.g. "Edits/clip.mp4". */
+  relPath: string
+  name: string
+  sizeBytes: number
+  mtimeMs: number
+  media?: MediaInfo
+  /** Set when the file could not be read as a video. */
+  error?: string
+  /** cadence-media:// URL of a cached thumbnail, when one exists. */
+  thumbUrl?: string
+}
+
+export interface FolderListing {
+  folder: string | null
+  exists: boolean
+  videos: FolderVideo[]
+  /** True when the folder had more videos than Cadence lists. */
+  truncated: boolean
+  scannedAt: string
+}
+
+// ---------- Views / insights ----------
+
+export interface MediaStat {
+  id: string
+  title: string
+  url?: string
+  thumbnailUrl?: string
+  publishedAt?: string
+  views: number | null
+  likes?: number
+  comments?: number
+  /** Posted through Cadence. */
+  viaCadence?: boolean
+}
+
+export interface AccountInsights {
+  fetchedAt: string
+  /** Total views across the account. null when the platform did not return views. */
+  totalViews: number | null
+  followers?: number
+  postCount?: number
+  /** How many posts the total was summed from (Instagram). */
+  countedPosts?: number
+  top: MediaStat[]
+  recent: MediaStat[]
+  /** Explains a limitation, e.g. a missing permission. */
+  note?: string
+}
+
+export interface InsightsPoint {
+  /** Local day, YYYY-MM-DD. */
+  day: string
+  instagram?: number
+  youtube?: number
+}
+
+export interface InsightsState {
+  instagram?: AccountInsights
+  youtube?: AccountInsights
+  /** One point per day, used for the trend lines. */
+  history: InsightsPoint[]
+  instagramError?: string
+  youtubeError?: string
+  refreshing: boolean
 }
 
 export interface ProgressEvent {

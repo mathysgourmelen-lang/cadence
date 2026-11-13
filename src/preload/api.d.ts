@@ -1,6 +1,8 @@
 import type {
   AccountsState,
   AppSnapshot,
+  FolderListing,
+  InsightsState,
   ImportedVideo,
   InstagramAccount,
   InstagramPageChoice,
@@ -35,6 +37,14 @@ export interface CadenceApi {
   instagramLimit(): Promise<{ used: number; total: number } | null>
   youtubeConnect(args: { clientId: string; clientSecret: string }): Promise<YouTubeAccount>
   youtubeDisconnect(): Promise<void>
+  importPaths(paths: string[]): Promise<ImportedVideo[]>
+  listFolder(): Promise<FolderListing>
+  chooseFolder(): Promise<FolderListing>
+  saveFolderThumb(path: string, dataUrl: string): Promise<string | undefined>
+  onFolderChanged(cb: () => void): () => void
+  /** URL the <video> element can play for a file inside the library folder. */
+  folderUrl(relPath: string): string
+  refreshInsights(): Promise<InsightsState>
   openExternal(url: string): Promise<void>
   reveal(path: string): Promise<void>
   openDataFolder(): Promise<void>

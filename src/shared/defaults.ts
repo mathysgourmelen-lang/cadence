@@ -15,7 +15,8 @@ export const DEFAULT_SETTINGS: Settings = {
   graphApiVersion: 'v24.0',
   snippets: [],
   paused: false,
-  notifications: true
+  notifications: true,
+  libraryFolder: null
 }
 
 export const YOUTUBE_CATEGORIES: { id: string; name: string }[] = [

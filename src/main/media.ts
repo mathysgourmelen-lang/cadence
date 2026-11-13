@@ -89,6 +89,11 @@ export async function serveLibraryFile(libraryDir: string, request: Request): Pr
   if (!name || name.includes('/') || name.includes('\\') || name.startsWith('.')) return new Response('Forbidden', { status: 403 })
   const filePath = join(libraryDir, name)
   if (!isInside(libraryDir, filePath)) return new Response('Forbidden', { status: 403 })
+  return serveFile(filePath, request)
+}
+
+/** Streams a file, honouring Range requests. Callers must check the path is allowed. */
+export async function serveFile(filePath: string, request: Request): Promise<Response> {
   let size: number
   try {
     size = (await stat(filePath)).size

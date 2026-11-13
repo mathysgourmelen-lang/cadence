@@ -6,7 +6,7 @@ import { mockApi } from './mock'
 export const api: CadenceApi = typeof window !== 'undefined' && window.cadence ? window.cadence : mockApi
 export const isDemo = typeof window !== 'undefined' && !window.cadence
 
-export type Route = 'compose' | 'queue' | 'calendar' | 'history' | 'accounts' | 'settings' | 'guide'
+export type Route = 'compose' | 'library' | 'queue' | 'calendar' | 'history' | 'views' | 'accounts' | 'settings' | 'guide'
 
 export interface ComposeRequest {
   /** Edit an existing post. */
@@ -15,6 +15,8 @@ export interface ComposeRequest {
   date?: string
   /** Open the file picker right away. */
   pick?: boolean
+  /** Import these files (from the Library tab). */
+  paths?: string[]
   nonce: number
 }
 

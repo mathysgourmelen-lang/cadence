@@ -285,6 +285,70 @@ export class YouTubeClient {
     return { id: ch.id, title: ch.snippet?.title ?? 'YouTube channel', thumbnailUrl: ch.snippet?.thumbnails?.default?.url }
   }
 
+  private async apiGet(tokens: YouTubeTokens, path: string, params: Record<string, string | undefined>, context: string): Promise<any> {
+    const token = await this.accessToken(tokens)
+    const u = new URL(`${this.endpoints.api}/${path}`)
+    for (const [k, v] of Object.entries(params)) if (v) u.searchParams.set(k, v)
+    const res = await fetchWithTimeout(u.toString(), { headers: { Authorization: `Bearer ${token}` } })
+    const body = await readJson(res)
+    if (!res.ok) throw googleError(res.status, body, context)
+    return body
+  }
+
+  /** Lifetime channel totals and the playlist that holds every upload. */
+  async channelStats(tokens: YouTubeTokens): Promise<{ views: number; subscribers?: number; videoCount: number; uploadsPlaylist?: string }> {
+    const body = await this.apiGet(tokens, 'channels', { part: 'statistics,contentDetails', mine: 'true' }, 'Could not read channel stats')
+    const ch = body.items?.[0]
+    if (!ch) throw new ApiError('This Google account has no YouTube channel.', { retriable: false })
+    const st = ch.statistics ?? {}
+    return {
+      views: Number(st.viewCount ?? 0),
+      subscribers: st.hiddenSubscriberCount ? undefined : Number(st.subscriberCount ?? 0),
+      videoCount: Number(st.videoCount ?? 0),
+      uploadsPlaylist: ch.contentDetails?.relatedPlaylists?.uploads
+    }
+  }
+
+  /** Video ids of the most recent uploads, newest first. */
+  async uploadIds(tokens: YouTubeTokens, playlistId: string, max = 200): Promise<string[]> {
+    const ids: string[] = []
+    let pageToken: string | undefined
+    do {
+      const body = await this.apiGet(
+        tokens,
+        'playlistItems',
+        { part: 'contentDetails', playlistId, maxResults: '50', pageToken },
+        'Could not list your uploads'
+      )
+      for (const it of body.items ?? []) if (it.contentDetails?.videoId) ids.push(it.contentDetails.videoId)
+      pageToken = body.nextPageToken
+    } while (pageToken && ids.length < max)
+    return ids.slice(0, max)
+  }
+
+  async videoStats(
+    tokens: YouTubeTokens,
+    ids: string[]
+  ): Promise<{ id: string; title: string; publishedAt?: string; thumbnailUrl?: string; views: number; likes?: number; comments?: number }[]> {
+    const out = []
+    for (let i = 0; i < ids.length; i += 50) {
+      const body = await this.apiGet(tokens, 'videos', { part: 'snippet,statistics', id: ids.slice(i, i + 50).join(','), maxResults: '50' }, 'Could not read video stats')
+      for (const v of body.items ?? []) {
+        const st = v.statistics ?? {}
+        out.push({
+          id: v.id,
+          title: v.snippet?.title ?? '',
+          publishedAt: v.snippet?.publishedAt,
+          thumbnailUrl: v.snippet?.thumbnails?.medium?.url ?? v.snippet?.thumbnails?.default?.url,
+          views: Number(st.viewCount ?? 0),
+          likes: st.likeCount != null ? Number(st.likeCount) : undefined,
+          comments: st.commentCount != null ? Number(st.commentCount) : undefined
+        })
+      }
+    }
+    return out
+  }
+
   static buildResource(meta: VideoMetadata): any {
     const status: Record<string, unknown> = {
       privacyStatus: meta.publishAt ? 'private' : meta.privacy,

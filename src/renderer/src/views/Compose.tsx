@@ -214,6 +214,7 @@ export default function Compose() {
       }
     }
     if (composeRequest.pick) void pick()
+    if (composeRequest.paths?.length) void importPaths(composeRequest.paths)
     if (composeRequest.date) pendingDate.current = composeRequest.date
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [composeRequest])
@@ -257,6 +258,17 @@ export default function Compose() {
     setImporting(true)
     try {
       await addImported(await api.pickVideos())
+    } catch (e) {
+      toast('err', (e as Error).message)
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  async function importPaths(paths: string[]) {
+    setImporting(true)
+    try {
+      await addImported(await api.importPaths(paths))
     } catch (e) {
       toast('err', (e as Error).message)
     } finally {
