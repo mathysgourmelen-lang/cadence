@@ -73,8 +73,7 @@ Keep this tab open.
    - `pages_show_list`
    - `pages_read_engagement`
    - `business_management`
-
-   If your Page is managed in **Meta Business Suite** (a business portfolio), also add `ads_management` and `ads_read`. Meta requires them in that setup. Cadence never touches ads.
+   - Only if your Page is managed in **Meta Business Suite** (a business portfolio): also `ads_management` and `ads_read`. Meta requires them in that setup. Cadence never touches ads.
 5. Click **Generate Access Token**. A Facebook window opens:
    - Click **Continue as …**.
    - When asked which Pages and Instagram accounts to allow, select **the Page** from step 2.2 **and your Instagram account** (or choose "Opt in to all current and future…").
