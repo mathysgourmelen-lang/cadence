@@ -26,7 +26,8 @@ jobs:
 
   mac:
     needs: test
-    runs-on: macos-latest
+    # Intel runner: arm64 runners are often out of capacity; it still builds both arm64 and x64 DMGs.
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
