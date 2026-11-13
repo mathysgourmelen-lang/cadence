@@ -215,7 +215,7 @@ export class YouTubeClient {
         u.searchParams.set('response_type', 'code')
         u.searchParams.set('scope', YT_SCOPES.join(' '))
         u.searchParams.set('access_type', 'offline')
-        u.searchParams.set('prompt', 'consent')
+        u.searchParams.set('prompt', 'select_account consent')
         u.searchParams.set('include_granted_scopes', 'true')
         u.searchParams.set('code_challenge', challenge)
         u.searchParams.set('code_challenge_method', 'S256')

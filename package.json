@@ -1,7 +1,7 @@
 {
   "name": "cadence",
   "productName": "Cadence",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Schedule and publish Instagram Reels and YouTube Shorts from your Mac.",
   "main": "./out/main/index.js",
   "author": "max",
@@ -34,7 +34,7 @@
   "build": {
     "appId": "app.cadence.scheduler",
     "productName": "Cadence",
-    "copyright": "\u00a9 2026 max",
+    "copyright": "© 2026 max",
     "directories": {
       "buildResources": "build",
       "output": "dist"
@@ -63,7 +63,7 @@
       "artifactName": "Cadence-${version}-${arch}.${ext}",
       "extendInfo": {
         "LSUIElement": false,
-        "NSHumanReadableCopyright": "\u00a9 2026 max"
+        "NSHumanReadableCopyright": "© 2026 max"
       }
     },
     "dmg": {
