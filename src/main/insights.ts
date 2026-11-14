@@ -4,7 +4,7 @@
 import { ApiError } from './http'
 import type { InstagramClient, InstagramCredentials, IgMediaItem } from './instagram'
 import type { YouTubeClient, YouTubeTokens } from './youtube'
-import type { AccountInsights, InsightsPoint, InsightsState, MediaStat, Post } from '../shared/types'
+import type { AccountInsights, InsightsPoint, InsightsState, MediaStat, Post, TimingSample } from '../shared/types'
 
 export const IG_MAX_POSTS = 1000
 const IG_PER_POST_FALLBACK = 300
@@ -22,6 +22,10 @@ function isPermissionError(err: unknown): boolean {
 function captionTitle(caption?: string): string {
   const line = (caption ?? '').split('\n').find((l) => l.trim()) ?? ''
   return line.trim().slice(0, 120) || 'Untitled post'
+}
+
+function timingOf(items: MediaStat[]): TimingSample[] {
+  return items.filter((m) => m.publishedAt && m.views != null).map((m) => [new Date(m.publishedAt!).toISOString(), m.views!] as TimingSample)
 }
 
 function rank(items: MediaStat[]): { top: MediaStat[]; recent: MediaStat[] } {
@@ -108,6 +112,7 @@ export async function instagramInsights(client: InstagramClient, creds: Instagra
     postCount: acct.mediaCount,
     countedPosts: counted.length,
     note,
+    timing: timingOf(counted),
     ...rank(stats)
   }
 }
@@ -136,6 +141,7 @@ export async function youtubeInsights(client: YouTubeClient, tokens: YouTubeToke
     postCount: ch.videoCount,
     countedPosts: ch.videoCount,
     note: ch.videoCount > YT_MAX_VIDEOS ? `Top videos are picked from your latest ${YT_MAX_VIDEOS} uploads. The total covers every video.` : undefined,
+    timing: timingOf(stats),
     ...rank(stats)
   }
 }

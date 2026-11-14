@@ -5,9 +5,12 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { open } from 'node:fs/promises'
+import { open, readFile } from 'node:fs/promises'
 import { ApiError, fetchWithTimeout, readJson } from './http'
 import type { YouTubePrivacy } from '../shared/types'
+
+/** YouTube's limit for custom thumbnails. */
+export const THUMB_MAX_BYTES = 2 * 1024 * 1024
 
 export const YT_SCOPES = [
   'https://www.googleapis.com/auth/youtube.upload',
@@ -403,6 +406,31 @@ export class YouTubeClient {
       },
       status
     }
+  }
+
+  /** Sets a custom thumbnail (JPEG or PNG, at most 2 MB) on an uploaded video. */
+  async setThumbnail(tokens: YouTubeTokens, videoId: string, imagePath: string): Promise<void> {
+    if (!/^[\w-]{6,20}$/.test(videoId)) throw new ApiError('Unknown video.', { retriable: false })
+    const buf = await readFile(imagePath)
+    if (buf.length > THUMB_MAX_BYTES) throw new ApiError('The thumbnail is larger than 2 MB.', { retriable: false })
+    const type = /\.png$/i.test(imagePath) ? 'image/png' : 'image/jpeg'
+    const token = await this.accessToken(tokens)
+    const res = await fetchWithTimeout(`${this.endpoints.upload}/thumbnails/set?videoId=${encodeURIComponent(videoId)}&uploadType=media`, {
+      method: 'POST',
+      timeoutMs: 2 * 60 * 1000,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': type, 'Content-Length': String(buf.length) },
+      body: new Uint8Array(buf)
+    })
+    const body = await readJson(res)
+    if (res.ok) return
+    const reason: string | undefined = body?.error?.errors?.[0]?.reason
+    if (res.status === 403 && (reason === 'forbidden' || /permission|verif/i.test(body?.error?.message ?? ''))) {
+      throw new ApiError(
+        'YouTube only allows custom thumbnails on verified channels. Verify your channel with a phone number at youtube.com/verify, then set the thumbnail in YouTube Studio.',
+        { status: 403, retriable: false, code: 'thumbnail_not_allowed', raw: body }
+      )
+    }
+    throw googleError(res.status, body, 'YouTube did not accept the thumbnail')
   }
 
   /** Starts a resumable upload session and returns its upload URL. */

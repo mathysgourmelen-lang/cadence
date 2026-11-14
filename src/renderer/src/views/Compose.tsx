@@ -38,6 +38,7 @@ interface Draft {
     madeForKids: boolean
     categoryId: string
     mode: 'native' | 'atTime'
+    thumbnailPath?: string
   }
   descSameAsCaption: boolean
   titleTouched: boolean
@@ -99,7 +100,8 @@ function draftFromPost(p: Post): Draft {
       privacy: p.youtube.privacy,
       madeForKids: p.youtube.madeForKids,
       categoryId: p.youtube.categoryId,
-      mode: p.youtube.mode
+      mode: p.youtube.mode,
+      thumbnailPath: p.youtube.thumbnailPath
     },
     descSameAsCaption: p.youtube.description === p.instagram.caption,
     titleTouched: true,
@@ -133,7 +135,8 @@ function toInput(d: Draft, schedule: boolean): PostDraftInput {
       privacy: d.yt.privacy,
       madeForKids: d.yt.madeForKids,
       categoryId: d.yt.categoryId,
-      mode: d.yt.mode
+      mode: d.yt.mode,
+      thumbnailPath: d.yt.thumbnailPath
     }
   }
 }
@@ -616,6 +619,11 @@ export default function Compose() {
                     onChange={(e) => set((x) => ({ ...x, yt: { ...x.yt, tags: e.target.value } }))}
                   />
                 </div>
+                <YouTubeThumbnailField
+                  path={d.yt.thumbnailPath}
+                  disabled={d.ytLocked}
+                  onChange={(p) => set((x) => ({ ...x, yt: { ...x.yt, thumbnailPath: p } }))}
+                />
                 <div className="row wrap" style={{ gap: 14, alignItems: 'flex-end' }}>
                   <div className="field" style={{ marginBottom: 0 }}>
                     <label>Visibility</label>
@@ -922,5 +930,65 @@ function SpreadModal({
         </button>
       </div>
     </Modal>
+  )
+}
+
+function YouTubeThumbnailField({ path, disabled, onChange }: { path?: string; disabled?: boolean; onChange: (path: string | undefined) => void }) {
+  const { toast } = useFeedback()
+  const [busy, setBusy] = useState(false)
+  const [over, setOver] = useState(false)
+  const run = async (fn: () => Promise<{ path: string } | null>) => {
+    setBusy(true)
+    try {
+      const t = await fn()
+      if (t) onChange(t.path)
+    } catch (e) {
+      toast('err', (e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="field">
+      <label>
+        Thumbnail <span className="faint small" style={{ fontWeight: 500 }}>optional</span>
+      </label>
+      <div
+        className={cx('yt-thumb-field', over && 'over', disabled && 'disabled')}
+        onDragOver={(e) => {
+          e.stopPropagation()
+          if (disabled) return
+          e.preventDefault()
+          setOver(true)
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          setOver(false)
+          const f = e.dataTransfer.files[0]
+          if (f && !disabled) void run(() => api.youtubeThumbnailFromFile(f))
+        }}
+      >
+        <button type="button" className="yt-thumb-box" disabled={disabled || busy} onClick={() => void run(() => api.pickYouTubeThumbnail())} aria-label="Choose a thumbnail">
+          {busy ? <Spinner /> : path ? <img src={api.mediaUrl(path)} alt="" /> : <Icon.Image size={22} />}
+        </button>
+        <div className="grow">
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="btn sm" disabled={disabled || busy} onClick={() => void run(() => api.pickYouTubeThumbnail())}>
+              {path ? 'Change image' : 'Choose image'}
+            </button>
+            {path && (
+              <button type="button" className="btn sm ghost" disabled={disabled || busy} onClick={() => onChange(undefined)}>
+                Remove
+              </button>
+            )}
+          </div>
+          <div className="help">
+            PNG or JPEG, or drop one here. Big images are shrunk to YouTube's 2 MB limit. Custom thumbnails need a verified channel (youtube.com/verify).
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

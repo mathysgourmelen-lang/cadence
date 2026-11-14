@@ -9,10 +9,11 @@ Schedule Instagram Reels and YouTube Shorts from your Mac. Pick MP4s from your c
 - **Drag in videos** (MP4 or MOV). Cadence checks length, aspect ratio, size, codec and frame rate against what Instagram and YouTube accept before you schedule anything.
 - **One caption, two platforms.** The YouTube title fills itself from your caption's first line, with live character, hashtag and mention counters.
 - **Live phone preview** of the Reel and the Short, with a safe-zone overlay and a cover-frame picker.
+- **Custom YouTube thumbnails.** Pick or drop a PNG/JPEG; Cadence fits it to YouTube's 2 MB limit and sets it after upload.
 - **Batch scheduling.** Drop several videos and spread them across your favourite posting times in one click.
-- **Library tab.** Point Cadence at your exports folder and see every video with a thumbnail, hover-to-play, and a Reel/Short readiness check. Badges show what's already posted or queued; select several and create posts in one go.
+- **Library tab.** Point Cadence at your exports folder and see every video with a thumbnail, hover-to-play, and a Reel/Short readiness check. Badges show what's already posted or queued; select several and create posts in one go. Zoom from 2 to 12 videos per row.
 - **Views tab.** Total views per Instagram account and YouTube channel, combined total, growth over 7/30/90 days, and your top posts.
-- **Analytics tab.** Average watch time, skip rate, shares and saves per Reel; average % viewed, retention graph, traffic sources and subscribers gained per YouTube video.
+- **Analytics tab.** Average watch time, skip rate, shares and saves per Reel; average % viewed, retention graph, traffic sources and subscribers gained per YouTube video. A **best time to post** heatmap shows which hours and weekdays work for you, and sets your default posting times in one click.
 - **Queue, calendar and history.** Drag posts between days, retry failures, and see an activity log for every post.
 - **Posts straight to the official APIs** (Instagram Graph API and YouTube Data API). No third-party service, nothing stored online. Your keys stay in the macOS Keychain.
 

@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto'
 import { unlink } from 'node:fs/promises'
 import type { Store } from './store'
+import { isInside } from './media'
 import { addLog } from './scheduler'
 import type { InstagramTarget, Platform, Post, PostDraftInput, TargetBase, YouTubeTarget } from '../shared/types'
 import { IN_FLIGHT, isEditable } from '../shared/status'
@@ -83,6 +84,9 @@ export function savePost(store: Store, input: PostDraftInput, now = Date.now()):
   }
   // YouTube
   {
+    // Only accept thumbnails that Cadence copied into its own library.
+    const thumb = input.youtube.thumbnailPath
+    if (thumb && !isInside(store.libraryDir, thumb)) throw new PostError('Choose the thumbnail again.')
     const t = post.youtube
     if (input.youtube.enabled || t.enabled) {
       if (t.enabled && !isEditable(t.state)) {
@@ -94,6 +98,7 @@ export function savePost(store: Store, input: PostDraftInput, now = Date.now()):
           t.madeForKids !== input.youtube.madeForKids ||
           t.categoryId !== input.youtube.categoryId ||
           t.mode !== input.youtube.mode ||
+          (t.thumbnailPath ?? undefined) !== (input.youtube.thumbnailPath ?? undefined) ||
           !input.youtube.enabled ||
           timeChanged
         if (changed) {

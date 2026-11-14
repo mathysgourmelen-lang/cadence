@@ -62,6 +62,34 @@ export const Icon = {
       <path d="M20 16v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3" />
     </Svg>
   ),
+  Image: (p: P) => (
+    <Svg {...p}>
+      <rect x="3" y="4" width="18" height="16" rx="3" />
+      <circle cx="9" cy="10" r="1.8" />
+      <path d="m4 18 5-5 4 4 2.5-2.5L20 19" />
+    </Svg>
+  ),
+  GridMany: (p: P) => (
+    <Svg {...p}>
+      <rect x="3.5" y="3.5" width="4.5" height="4.5" rx="1" />
+      <rect x="9.75" y="3.5" width="4.5" height="4.5" rx="1" />
+      <rect x="16" y="3.5" width="4.5" height="4.5" rx="1" />
+      <rect x="3.5" y="9.75" width="4.5" height="4.5" rx="1" />
+      <rect x="9.75" y="9.75" width="4.5" height="4.5" rx="1" />
+      <rect x="16" y="9.75" width="4.5" height="4.5" rx="1" />
+      <rect x="3.5" y="16" width="4.5" height="4.5" rx="1" />
+      <rect x="9.75" y="16" width="4.5" height="4.5" rx="1" />
+      <rect x="16" y="16" width="4.5" height="4.5" rx="1" />
+    </Svg>
+  ),
+  GridFew: (p: P) => (
+    <Svg {...p}>
+      <rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1.5" />
+      <rect x="13" y="3.5" width="7.5" height="7.5" rx="1.5" />
+      <rect x="3.5" y="13" width="7.5" height="7.5" rx="1.5" />
+      <rect x="13" y="13" width="7.5" height="7.5" rx="1.5" />
+    </Svg>
+  ),
   Plus: (p: P) => (
     <Svg {...p}>
       <path d="M12 5v14M5 12h14" />

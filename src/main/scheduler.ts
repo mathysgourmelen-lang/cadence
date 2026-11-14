@@ -477,6 +477,7 @@ export class Scheduler {
           const q = await this.deps.youtube.queryUpload(tokens, uploadUrl, post.video.sizeBytes)
           if (q.video) {
             this.ytDone(postId, q.video, publishAt)
+            await this.ytThumbnail(postId, tokens, q.video?.id)
             return
           }
           offset = q.offset
@@ -524,6 +525,7 @@ export class Scheduler {
         offset
       )
       this.ytDone(postId, video, publishAt)
+      await this.ytThumbnail(postId, tokens, video?.id)
     } catch (err) {
       if (err instanceof ApiError && err.opts.code === 'session_expired') {
         this.setYt(postId, (y) => (y.uploadUrl = undefined))
@@ -533,6 +535,20 @@ export class Scheduler {
       this.fail(postId, 'youtube', err, p?.youtube.uploadUrl ? 'uploading' : 'scheduled')
     } finally {
       if (tokens) this.saveYtTokens(tokens)
+    }
+  }
+
+  /** Sets the custom thumbnail. A failure here never fails the post: the video is already up. */
+  private async ytThumbnail(postId: string, tokens: YouTubeTokens, videoId: string | undefined): Promise<void> {
+    const path = this.store.getPost(postId)?.youtube.thumbnailPath
+    if (!path || !videoId || !this.deps.youtube.setThumbnail) return
+    try {
+      if (!existsSync(path)) throw new Error('the image file is missing')
+      await this.deps.youtube.setThumbnail(tokens, videoId, path)
+      this.setYt(postId, (y) => addLog(y, 'Custom thumbnail set.'))
+    } catch (err) {
+      const msg = (err as Error)?.message ?? String(err)
+      this.setYt(postId, (y) => addLog(y, `The video is up, but the thumbnail wasn't set: ${msg}`, 'error'))
     }
   }
 

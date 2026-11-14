@@ -54,6 +54,7 @@ export async function cleanLibrary(libraryDir: string, posts: Post[], minAgeMs =
   for (const p of posts) {
     keep.add(resolve(p.video.libraryPath))
     if (p.video.thumbnailPath) keep.add(resolve(p.video.thumbnailPath))
+    if (p.youtube.thumbnailPath) keep.add(resolve(p.youtube.thumbnailPath))
   }
   let removed = 0
   for (const name of await readdir(libraryDir).catch(() => [] as string[])) {

@@ -185,6 +185,30 @@ describe('YouTubeClient', () => {
   const yt = () => new YouTubeClient({ auth: `${base}/auth`, token: `${base}/token`, api: `${base}/yt`, upload: `${base}/up` })
   const tokens = () => ({ clientId: 'cid', clientSecret: 'csec', refreshToken: 'RT' })
 
+  it('uploads a custom thumbnail with the right content type', async () => {
+    const img = join(dir, 'cover.png')
+    writeFileSync(img, Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]))
+    log.length = 0
+    handler = (r, res) => (r.url.pathname === '/token' ? json(res, 200, { access_token: 'AT', expires_in: 3599 }) : json(res, 200, { items: [] }))
+    await yt().setThumbnail(tokens(), 'abcDEF123_-', img)
+    const r = log.find((x) => x.url.pathname === '/up/thumbnails/set')!
+    expect(r.method).toBe('POST')
+    expect(r.url.searchParams.get('videoId')).toBe('abcDEF123_-')
+    expect(r.headers['content-type']).toBe('image/png')
+    expect(r.headers.authorization).toBe('Bearer AT')
+    expect(r.body.length).toBe(7)
+  })
+
+  it('explains when the channel may not set custom thumbnails', async () => {
+    const img = join(dir, 'cover.jpg')
+    writeFileSync(img, Buffer.alloc(5))
+    handler = (r, res) =>
+      r.url.pathname === '/token'
+        ? json(res, 200, { access_token: 'AT', expires_in: 3599 })
+        : json(res, 403, { error: { message: "The authenticated user doesn't have permissions to upload and set custom video thumbnails.", errors: [{ reason: 'forbidden' }] } })
+    await expect(yt().setThumbnail(tokens(), 'abcDEF123', img)).rejects.toMatchObject({ message: expect.stringContaining('youtube.com/verify') })
+  })
+
   it('refreshes the access token and caches it', async () => {
     log.length = 0
     handler = (r, res) => {

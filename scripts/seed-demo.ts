@@ -92,6 +92,21 @@ async function add(file: string, when: string, cap: string, title: string, ig: P
     m('y5', 'Latte art in slow motion ☕️', 40_660, 3, t[2])
   ]
   const fetchedAt = new Date().toISOString()
+  // Posting history with a clear pattern: evenings and weekends do best.
+  const demoTiming = (n: number, base: number, seed: number): [string, number][] => {
+    let r = seed
+    const rand = () => ((r = (r * 9301 + 49297) % 233280) / 233280)
+    const hours = [8, 9, 12, 13, 15, 18, 19, 20, 21, 22]
+    return Array.from({ length: n }, (_, i) => {
+      const d = new Date(Date.now() - (3 + i * 1.4) * 86400_000)
+      const h = hours[Math.floor(rand() * hours.length)]
+      d.setHours(h, Math.floor(rand() * 60), 0, 0)
+      const growth = 1 + (n - i) / n
+      const timeBoost = h >= 18 && h < 21 ? 2.4 : h >= 21 ? 1.5 : h >= 12 && h < 15 ? 1.15 : h < 12 ? 0.55 : 0.9
+      const dayBoost = d.getDay() === 0 || d.getDay() === 6 ? 1.35 : 1
+      return [d.toISOString(), Math.round(base * growth * timeBoost * dayBoost * (0.6 + rand() * 0.8))]
+    })
+  }
   store.setInsights({
     refreshing: false,
     history: Array.from({ length: 91 }, (_, i) => ({
@@ -99,8 +114,8 @@ async function add(file: string, when: string, cap: string, title: string, ig: P
       instagram: Math.round(1_210_000 + i * 6_100 + Math.sin(i / 3) * 4_000 + (i > 70 ? (i - 70) * 9_000 : 0)),
       youtube: Math.round(3_550_000 + i * 14_500 + Math.cos(i / 4) * 9_000 + (i > 78 ? (i - 78) * 30_000 : 0))
     })),
-    instagram: { fetchedAt, totalViews: 1_982_640, followers: 48_213, postCount: 212, countedPosts: 212, top: igTop, recent: igTop },
-    youtube: { fetchedAt, totalViews: 5_216_904, followers: 61_480, postCount: 148, countedPosts: 148, top: ytTop, recent: ytTop }
+    instagram: { fetchedAt, totalViews: 1_982_640, followers: 48_213, postCount: 212, countedPosts: 212, top: igTop, recent: igTop, timing: demoTiming(140, 6_000, 7) },
+    youtube: { fetchedAt, totalViews: 5_216_904, followers: 61_480, postCount: 148, countedPosts: 148, top: ytTop, recent: ytTop, timing: demoTiming(110, 14_000, 11) }
   })
   const titles = ['My 5am routine that actually stuck ☀️', 'Desk setup tour 2026 🖥️', 'Latte art in slow motion ☕️', 'Golden hour in Shibuya 🌆', 'Studio vlog #12 🎙️', 'Sunset from 120m up 🚁', '3 habits that changed my mornings', 'What I eat in a day', 'Room makeover in 30 seconds', 'Coffee shop tour, Tokyo']
   const reels = titles.map((title, i) => {

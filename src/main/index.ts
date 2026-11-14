@@ -21,6 +21,7 @@ import { Scheduler } from './scheduler'
 import { InstagramClient, type InstagramCredentials } from './instagram'
 import { YouTubeClient, type YouTubeTokens } from './youtube'
 import { ApiError } from './http'
+import { prepareThumbnail, THUMB_EXTENSIONS } from './ytthumb'
 import { cleanLibrary, importVideo, saveThumbnail, serveLibraryFile } from './media'
 import { FolderLibrary } from './folder'
 import { instagramInsights, recordHistory, youtubeInsights } from './insights'
@@ -408,6 +409,25 @@ function refreshAnalytics(): Promise<void> {
 
 function registerIpc(): void {
   handle('state:get', () => snapshot())
+
+  handle('youtube:pickThumbnail', async () => {
+    const res = await dialog.showOpenDialog(mainWindow!, {
+      title: 'Choose a YouTube thumbnail',
+      buttonLabel: 'Use as Thumbnail',
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: THUMB_EXTENSIONS }]
+    })
+    if (res.canceled || !res.filePaths[0]) return null
+    return prepareThumbnail(store.libraryDir, res.filePaths[0]).catch((e) => {
+      throw new PostError((e as Error).message)
+    })
+  })
+
+  handle('youtube:thumbnailFromPath', async (path: string) =>
+    prepareThumbnail(store.libraryDir, String(path)).catch((e) => {
+      throw new PostError((e as Error).message)
+    })
+  )
 
   handle('videos:pick', async () => {
     const res = await dialog.showOpenDialog(mainWindow!, {

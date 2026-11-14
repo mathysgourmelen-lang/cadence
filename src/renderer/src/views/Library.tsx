@@ -6,6 +6,7 @@ import { Segmented, Spinner, useFeedback } from '../ui'
 import { captureFrame, cx, relative, shortDateTime } from '../util'
 import { aspectLabel, formatBytes, formatDuration, validateInstagram, validateYouTube } from '../../../shared/validation'
 import { isUpcoming, postStatus } from '../../../shared/status'
+import { LIBRARY_COLUMNS } from '../../../shared/defaults'
 import type { Check, FolderListing, FolderVideo, MediaInfo, Post } from '../../../shared/types'
 
 type Filter = 'all' | 'unused' | 'scheduled' | 'posted'
@@ -76,6 +77,31 @@ export default function Library() {
   const [selected, setSelected] = useState<string[]>([])
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const folder = snap!.settings.libraryFolder
+  const savedCols = snap!.settings.libraryColumns ?? 5
+  const [cols, setColsState] = useState(savedCols)
+  useEffect(() => setColsState(savedCols), [savedCols])
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const setCols = (n: number) => {
+    const v = Math.min(LIBRARY_COLUMNS.max, Math.max(LIBRARY_COLUMNS.min, Math.round(n)))
+    setColsState(v)
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => void api.updateSettings({ libraryColumns: v }).catch(() => {}), 300)
+  }
+  const colsRef = useRef(cols)
+  colsRef.current = cols
+  // Cmd + / Cmd - (and Cmd 0) zoom the grid, like Photos and Finder.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return
+      if (e.key === '=' || e.key === '+') setCols(colsRef.current - 1)
+      else if (e.key === '-' || e.key === '_') setCols(colsRef.current + 1)
+      else if (e.key === '0') setCols(5)
+      else return
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const load = async (silent = false) => {
     if (!silent) setLoading(true)
@@ -261,6 +287,24 @@ export default function Library() {
                 ]}
               />
               <div className="grow" />
+              <div className="lib-zoom" title="Videos per row (⌘− / ⌘+)">
+                <button className="btn ghost icon sm" aria-label="More per row" onClick={() => setCols(cols + 1)} disabled={cols >= LIBRARY_COLUMNS.max}>
+                  <Icon.GridMany size={15} />
+                </button>
+                <input
+                  type="range"
+                  min={LIBRARY_COLUMNS.min}
+                  max={LIBRARY_COLUMNS.max}
+                  step={1}
+                  value={LIBRARY_COLUMNS.max + LIBRARY_COLUMNS.min - cols}
+                  onChange={(e) => setCols(LIBRARY_COLUMNS.max + LIBRARY_COLUMNS.min - Number(e.target.value))}
+                  aria-label="Thumbnail size"
+                />
+                <button className="btn ghost icon sm" aria-label="Fewer per row" onClick={() => setCols(cols - 1)} disabled={cols <= LIBRARY_COLUMNS.min}>
+                  <Icon.GridFew size={15} />
+                </button>
+                <span className="lib-zoom-n">{cols} per row</span>
+              </div>
               <select className="input" value={sort} onChange={(e) => setSort(e.target.value as Sort)} style={{ width: 150 }}>
                 <option value="newest">Newest first</option>
                 <option value="oldest">Oldest first</option>
@@ -291,7 +335,7 @@ export default function Library() {
                 </div>
               </div>
             ) : (
-              <div className="lib-grid">
+              <div className={cx('lib-grid', cols >= 7 && 'dense', cols >= 10 && 'tiny')} style={{ ['--cols' as string]: cols }}>
                 {videos.map((v) => (
                   <VideoCard
                     key={v.path}

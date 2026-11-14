@@ -95,6 +95,8 @@ export interface YouTubeTarget extends TargetBase {
   mode: 'native' | 'atTime'
   uploadUrl?: string
   videoId?: string
+  /** Custom thumbnail (JPEG/PNG in the app library), set after the upload. */
+  thumbnailPath?: string
 }
 
 export interface VideoRef {
@@ -147,6 +149,8 @@ export interface Settings {
   notifications: boolean
   /** Folder on the Mac that the Library tab shows (e.g. where you export your edits). */
   libraryFolder: string | null
+  /** Videos per row in the Library grid. */
+  libraryColumns: number
 }
 
 export interface Snippet {
@@ -205,7 +209,7 @@ export interface PostDraftInput {
   scheduledAt: string | null
   video: VideoRef
   instagram: Pick<InstagramTarget, 'enabled' | 'caption' | 'shareToFeed' | 'coverOffsetMs'>
-  youtube: Pick<YouTubeTarget, 'enabled' | 'title' | 'description' | 'tags' | 'privacy' | 'madeForKids' | 'categoryId' | 'mode'>
+  youtube: Pick<YouTubeTarget, 'enabled' | 'title' | 'description' | 'tags' | 'privacy' | 'madeForKids' | 'categoryId' | 'mode' | 'thumbnailPath'>
   /** false = save as draft. */
   schedule: boolean
 }
@@ -217,6 +221,14 @@ export interface AppSnapshot {
   insights: InsightsState
   analytics: AnalyticsState
   version: string
+}
+
+/** A custom thumbnail picked in Compose, already copied into the app library. */
+export interface ChosenThumbnail {
+  path: string
+  width: number
+  height: number
+  sizeBytes: number
 }
 
 // ---------- Library folder ----------
@@ -271,7 +283,12 @@ export interface AccountInsights {
   recent: MediaStat[]
   /** Explains a limitation, e.g. a missing permission. */
   note?: string
+  /** Publish time and views of every counted post, for "best time to post". */
+  timing?: TimingSample[]
 }
+
+/** [ISO publish time, views] */
+export type TimingSample = [string, number]
 
 export interface InsightsPoint {
   /** Local day, YYYY-MM-DD. */

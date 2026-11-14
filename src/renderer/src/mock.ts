@@ -195,6 +195,13 @@ export const mockApi: CadenceApi = {
     state = { ...state, accounts: { ...state.accounts, youtube: { connected: false, quotaUsedToday: 0 } } }
     emit()
   },
+  async pickYouTubeThumbnail() {
+    await delay()
+    return { path: '/demo/ytthumb.jpg', width: 1280, height: 720, sizeBytes: 412_000 }
+  },
+  async youtubeThumbnailFromFile() {
+    return { path: '/demo/ytthumb.jpg', width: 1280, height: 720, sizeBytes: 412_000 }
+  },
   async importPaths() {
     return this.pickVideos()
   },

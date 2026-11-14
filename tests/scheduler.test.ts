@@ -73,6 +73,11 @@ class FakeYT {
     this.lastMeta = meta
     return 'https://session/1'
   }
+  thumbFail: Error | null = null
+  async setThumbnail(_t: unknown, videoId: string, path: string) {
+    this.calls.push(`thumb:${videoId}:${path.split('/').pop()}`)
+    if (this.thumbFail) throw this.thumbFail
+  }
   async queryUpload() {
     this.calls.push('query')
     return { offset: 500 }
@@ -346,6 +351,22 @@ describe('YouTube scheduling', () => {
     const t = store.getPost(p.id)!.youtube
     expect(t.state).toBe('published')
     expect(t.log.some((l) => l.level === 'error' && /private/.test(l.message))).toBe(true)
+  })
+
+  it('sets the custom thumbnail after the upload, and a refused thumbnail never fails the post', async () => {
+    const thumb = join(store.libraryDir, 'abc.ytthumb.png')
+    writeFileSync(thumb, Buffer.alloc(10))
+    const p = savePost(store, ytOnly({ thumbnailPath: thumb }, null), clock)
+    yt.thumbFail = new ApiError('YouTube only allows custom thumbnails on verified channels.', { retriable: false })
+    await step()
+    expect(yt.calls).toEqual(['start', 'upload@0', 'thumb:V1:abc.ytthumb.png'])
+    const t = store.getPost(p.id)!.youtube
+    expect(t.state).toBe('published')
+    expect(t.log.some((l) => l.level === 'error' && /thumbnail wasn't set: YouTube only allows/.test(l.message))).toBe(true)
+  })
+
+  it('rejects a thumbnail outside the app library', () => {
+    expect(() => savePost(store, ytOnly({ thumbnailPath: '/etc/passwd' }, null), clock)).toThrow(/thumbnail/i)
   })
 
   it('posts to both platforms independently', async () => {

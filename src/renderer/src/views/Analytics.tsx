@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Topbar } from '../App'
 import { api, useApp } from '../state'
 import { Icon, InstagramMark, YouTubeMark } from '../icons'
@@ -6,7 +6,9 @@ import { Modal, Segmented, Spinner, useFeedback } from '../ui'
 import { cx, relative } from '../util'
 import { compact } from './Views'
 import { TRAFFIC_LABELS } from '../../../shared/traffic'
-import type { ReelAnalytics, RetentionPoint, YtVideoAnalytics } from '../../../shared/types'
+import type { ReelAnalytics, RetentionPoint, TimingSample, YtVideoAnalytics } from '../../../shared/types'
+import { analyzeTiming, BLOCK_HOURS, BLOCKS, blockLabel, MIN_SAMPLES, suggestedTimes, type Bucket } from '../../../shared/bestTime'
+import { formatHHMM, timezoneName } from '../util'
 
 type Platform = 'instagram' | 'youtube'
 
@@ -65,6 +67,14 @@ export default function Analytics() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Views-tab data covers far more posts (up to 1,000 reels / 200 Shorts); fall back to the Analytics list.
+  const timingFor = (p: Platform): TimingSample[] => {
+    const fromInsights = snap!.insights[p]?.timing
+    if (fromInsights?.length) return fromInsights
+    const rows: { publishedAt?: string; views: number | null }[] = (p === 'instagram' ? a.instagram?.reels : a.youtube?.videos) ?? []
+    return rows.filter((r) => r.publishedAt && r.views != null).map((r) => [r.publishedAt!, r.views!] as TimingSample)
+  }
+
   const fetched = Date.parse((platform === 'instagram' ? a.instagram?.fetchedAt : a.youtube?.fetchedAt) ?? '') || 0
   const noAccounts = !igAcc.connected && !ytAcc.connected
 
@@ -101,12 +111,12 @@ export default function Analytics() {
           </div>
         ) : platform === 'instagram' ? (
           igAcc.connected ? (
-            <InstagramPanel reels={a.instagram?.reels} unavailable={a.instagram?.unavailable ?? []} error={a.instagramError} loading={a.refreshing} onGuide={() => go('guide', { guideAnchor: 'instagram' })} />
+            <InstagramPanel timing={timingFor('instagram')} reels={a.instagram?.reels} unavailable={a.instagram?.unavailable ?? []} error={a.instagramError} loading={a.refreshing} onGuide={() => go('guide', { guideAnchor: 'instagram' })} />
           ) : (
             <ConnectCard name="Instagram" onConnect={() => go('accounts')} />
           )
         ) : ytAcc.connected ? (
-          <YouTubePanel videos={a.youtube?.videos} traffic={a.youtube?.traffic ?? []} error={a.youtubeError} loading={a.refreshing} onGuide={() => go('guide', { guideAnchor: 'youtube' })} />
+          <YouTubePanel timing={timingFor('youtube')} videos={a.youtube?.videos} traffic={a.youtube?.traffic ?? []} error={a.youtubeError} loading={a.refreshing} onGuide={() => go('guide', { guideAnchor: 'youtube' })} />
         ) : (
           <ConnectCard name="YouTube" onConnect={() => go('accounts')} />
         )}
@@ -263,7 +273,21 @@ function Meter({ value, max, text }: { value: number | null; max: number; text: 
 
 // ---------------- Instagram ----------------
 
-function InstagramPanel({ reels, unavailable, error, loading, onGuide }: { reels?: ReelAnalytics[]; unavailable: string[]; error?: string; loading: boolean; onGuide: () => void }) {
+function InstagramPanel({
+  timing,
+  reels,
+  unavailable,
+  error,
+  loading,
+  onGuide
+}: {
+  timing: TimingSample[]
+  reels?: ReelAnalytics[]
+  unavailable: string[]
+  error?: string
+  loading: boolean
+  onGuide: () => void
+}) {
   const [open, setOpen] = useState<ReelAnalytics | null>(null)
   if (!reels) {
     return (
@@ -340,6 +364,8 @@ function InstagramPanel({ reels, unavailable, error, loading, onGuide }: { reels
           )}
         </div>
       )}
+
+      <BestTimeCard samples={timing} noun="reels" />
 
       {unavailable.length > 0 && (
         <div className="notice" style={{ marginBottom: 16 }}>
@@ -453,12 +479,14 @@ function ReelDetail({ r, onClose }: { r: ReelAnalytics; onClose: () => void }) {
 // ---------------- YouTube ----------------
 
 function YouTubePanel({
+  timing,
   videos,
   traffic,
   error,
   loading,
   onGuide
 }: {
+  timing: TimingSample[]
   videos?: YtVideoAnalytics[]
   traffic: { source: string; views: number }[]
   error?: string
@@ -524,6 +552,8 @@ function YouTubePanel({
         <Kpi icon={<Icon.Chart size={14} />} label="Watch time" value={hours(minutes != null ? minutes * 60 : null)} sub="across these videos" />
         <Kpi icon={<Icon.Users size={14} />} label="Subscribers gained" value={subs != null ? `+${compact(subs)}` : '—'} sub="from these videos" />
       </div>
+
+      <BestTimeCard samples={timing} noun="Shorts" />
 
       {traffic.length > 0 && (
         <div className="card traffic">
@@ -699,6 +729,162 @@ function RetentionChart({ points, durationSec }: { points: RetentionPoint[]; dur
         <div className="spark-tip" style={{ left: `${(x(h.at) / W) * 100}%`, top: 0 }}>
           <b>{Math.round(h.watch * 100)}% watching</b>
           <span>at {xLabel(h.at)}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------- Best time to post ----------
+
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const DAY_LONG = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays']
+/** Monday first. */
+const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
+
+function liftText(lift: number): string {
+  if (lift >= 1.05) return `${lift >= 10 ? Math.round(lift) : lift.toFixed(1)}× your typical views`
+  if (lift <= 0.95) return `${Math.round((1 - lift) * 100)}% fewer views than typical`
+  return 'about typical'
+}
+
+function cellStyle(c: Bucket): React.CSSProperties | undefined {
+  if (!c.n) return undefined
+  const strength = Math.min(1, Math.abs(Math.log2(c.lift))) // full colour at 2x / 0.5x
+  const pctMix = Math.round(14 + strength * 76) * (c.n === 1 ? 0.55 : 1)
+  const hue = c.lift >= 1 ? 'var(--accent)' : 'var(--bt-cool)'
+  return { background: `color-mix(in srgb, ${hue} ${pctMix}%, var(--bt-neutral))` }
+}
+
+function BestTimeCard({ samples, noun }: { samples: TimingSample[]; noun: string }) {
+  const { snap } = useApp()
+  const { toast } = useFeedback()
+  const best = useMemo(() => analyzeTiming(samples), [samples])
+  const [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null)
+  const times = suggestedTimes(best)
+  const current = [...snap!.settings.defaultTimes].sort()
+  const alreadySet = times.length > 0 && times.join() === current.join()
+  const top = best.bestBlocks[0]
+  const enough = best.n >= MIN_SAMPLES
+  const hourCols = Array.from({ length: BLOCKS }, (_, i) => i * BLOCK_HOURS)
+
+  const useTimes = async () => {
+    try {
+      await api.updateSettings({ defaultTimes: times })
+      toast('ok', `New posts will now default to ${times.map(formatHHMM).join(', ')}.`)
+    } catch (e) {
+      toast('err', (e as Error).message)
+    }
+  }
+
+  const show = (e: React.MouseEvent, text: string) => {
+    const host = (e.currentTarget as HTMLElement).closest('.bt-card')!.getBoundingClientRect()
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setTip({ x: r.left - host.left + r.width / 2, y: r.top - host.top, text })
+  }
+  const describe = (label: string, c: Bucket) => (c.n ? `${label} · ${c.n} ${c.n === 1 ? 'post' : 'posts'} · ${liftText(c.lift)}` : `${label} · no posts yet`)
+
+  return (
+    <div className="card bt-card" onMouseLeave={() => setTip(null)}>
+      <div className="bt-head">
+        <div>
+          <h3>Best time to post</h3>
+          <div className="faint small">
+            From {best.n} {noun} older than 2 days · {timezoneName()}
+          </div>
+        </div>
+        {enough && times.length > 0 && (
+          <button className={cx('btn sm', !alreadySet && 'primary')} disabled={alreadySet} onClick={useTimes} title="Compose suggests these times for new posts">
+            {alreadySet ? (
+              <>
+                <Icon.Check size={14} /> These are your posting times
+              </>
+            ) : (
+              <>Use {times.map(formatHHMM).join(', ')} as my times</>
+            )}
+          </button>
+        )}
+      </div>
+
+      <div className="bt-body">
+        <div className="bt-summary">
+          {!enough ? (
+            <p className="muted">
+              Cadence needs at least {MIN_SAMPLES} {noun} older than 2 days to spot a pattern{best.n ? `, and has ${best.n} so far` : ''}. Keep posting at different times and check back.
+            </p>
+          ) : top ? (
+            <>
+              <div className="bt-eyebrow">Your best window</div>
+              <div className="bt-big">{blockLabel(top.start)}</div>
+              <div className="bt-lift">
+                {liftText(top.lift)} <span className="faint">· {top.n} posts</span>
+              </div>
+              {best.bestBlocks.length > 1 && (
+                <div className="bt-also">
+                  Also good:{' '}
+                  {best.bestBlocks.slice(1).map((b, i) => (
+                    <span key={b.start}>
+                      {i > 0 && ', '}
+                      <b>{blockLabel(b.start)}</b> ({b.lift.toFixed(1)}×)
+                    </span>
+                  ))}
+                </div>
+              )}
+              {best.bestDays.length > 0 && (
+                <div className="bt-also">
+                  Best days: <b>{best.bestDays.map((d) => DAY_LONG[d.day]).join(' and ')}</b>
+                </div>
+              )}
+              {best.worstBlock && (
+                <div className="bt-also">
+                  Weakest: <b>{blockLabel(best.worstBlock.start)}</b> ({liftText(best.worstBlock.lift)})
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="muted">No time of day clearly beats the others yet. Your {noun} do about the same whenever you post them.</p>
+          )}
+          <p className="bt-note">
+            Each post is compared with the ones you posted around the same time, so a growing account doesn't skew the result.
+          </p>
+        </div>
+
+        <div className="bt-grid-wrap">
+          <div className="bt-grid" role="table" aria-label="Views compared with typical, by weekday and time of day">
+            <span />
+            {hourCols.map((h) => (
+              <span key={h} className="bt-col">
+                {h === 0 ? '12a' : h < 12 ? `${h}a` : h === 12 ? '12p' : `${h - 12}p`}
+              </span>
+            ))}
+            {DAY_ORDER.map((d) => (
+              <Fragment key={d}>
+                <span className="bt-row">{DAY_NAMES[d]}</span>
+                {best.cells[d].map((c, b) => (
+                  <span
+                    key={b}
+                    className={cx('bt-cell', !c.n && 'bt-none', top && enough && b === top.start / BLOCK_HOURS && 'best-col')}
+                    style={cellStyle(c)}
+                    onMouseEnter={(e) => show(e, describe(`${DAY_NAMES[d]} ${blockLabel(b * BLOCK_HOURS)}`, c))}
+                  />
+                ))}
+              </Fragment>
+            ))}
+            <span className="bt-row all">All</span>
+            {best.blocks.map((c) => (
+              <span key={c.start} className={cx('bt-cell all', !c.n && 'bt-none')} style={cellStyle(c)} onMouseEnter={(e) => show(e, describe(`Any day ${blockLabel(c.start)}`, c))} />
+            ))}
+          </div>
+          <div className="bt-legend">
+            <span>Fewer views</span>
+            <span className="bt-ramp" />
+            <span>More views</span>
+          </div>
+        </div>
+      </div>
+      {tip && (
+        <div className="bt-tip" style={{ left: tip.x, top: tip.y }}>
+          {tip.text}
         </div>
       )}
     </div>

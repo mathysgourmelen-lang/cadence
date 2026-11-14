@@ -16,8 +16,11 @@ export const DEFAULT_SETTINGS: Settings = {
   snippets: [],
   paused: false,
   notifications: true,
-  libraryFolder: null
+  libraryFolder: null,
+  libraryColumns: 5
 }
+
+export const LIBRARY_COLUMNS = { min: 2, max: 12 }
 
 export const YOUTUBE_CATEGORIES: { id: string; name: string }[] = [
   { id: '1', name: 'Film & Animation' },

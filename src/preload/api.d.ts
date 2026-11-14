@@ -2,6 +2,7 @@ import type {
   AccountsState,
   AppSnapshot,
   AnalyticsState,
+  ChosenThumbnail,
   RetentionPoint,
   FolderListing,
   InsightsState,
@@ -40,6 +41,9 @@ export interface CadenceApi {
   youtubeConnect(args: { clientId: string; clientSecret: string }): Promise<YouTubeAccount>
   youtubeDisconnect(): Promise<void>
   importPaths(paths: string[]): Promise<ImportedVideo[]>
+  /** Opens a file picker; null when canceled. */
+  pickYouTubeThumbnail(): Promise<ChosenThumbnail | null>
+  youtubeThumbnailFromFile(file: File): Promise<ChosenThumbnail>
   listFolder(): Promise<FolderListing>
   chooseFolder(): Promise<FolderListing>
   saveFolderThumb(path: string, dataUrl: string): Promise<string | undefined>

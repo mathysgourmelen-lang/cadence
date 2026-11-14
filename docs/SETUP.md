@@ -182,6 +182,8 @@ If that happens:
 3. Pick a date and time, or **Post now**. With several videos, **Spread schedule** gives each one its own slot (for example every day at 6 PM).
 4. Click **Schedule** (or **Schedule all**).
 
+**Custom YouTube thumbnail (optional):** in YouTube details, click **Choose image** (or drop a PNG or JPEG on the box). Cadence shrinks big images to YouTube's 2 MB limit and sets the thumbnail right after the upload. YouTube only allows custom thumbnails on **verified channels**: verify yours once with a phone number at [youtube.com/verify](https://www.youtube.com/verify). If it isn't verified, the Short still posts and the post's activity log explains why the thumbnail was skipped.
+
 The right side shows a live phone preview and checks every video against each platform's rules before anything uploads.
 
 ### How posting works
@@ -197,6 +199,7 @@ If you always export your edits to the same place, open **Library** and click **
 
 - Each video shows its length, shape, and whether it's ready for a **Reel** and a **Short** (green tick, yellow warning, or red cross; hover for the reason).
 - Badges show which videos are already **Posted** or **In queue**, so you don't post the same clip twice. **Not posted** filters to the fresh ones.
+- Use the slider next to the sort menu (or **⌘ −** and **⌘ +**) to show from 2 to 12 videos per row. **⌘ 0** goes back to 5.
 - Hover a video to play it. Click to select several (Shift-click selects a range), then **Create posts**. Or hover one and click **Post this**.
 - Your files are never moved or changed. Cadence makes its own copy when you schedule, so you can tidy the folder afterwards.
 
@@ -215,6 +218,7 @@ If you always export your edits to the same place, open **Library** and click **
 
 - **Instagram Reels (latest 30):** views, reach, **average watch time**, **skip rate** (the share of views that swiped away in the first 3 seconds; lower is better), total watch time, shares and saves. It also highlights your best hook and the reel watched longest. For reels posted through Cadence it shows how much of the reel an average play covers.
 - **YouTube (latest 50 uploads):** views, engaged views, **average % viewed** (over 100% means people rewatched, common for Shorts), average view duration, watch time, likes and subscribers gained, plus where your views came from (Shorts feed, search, and so on) over the last 28 days. Click a video for its **audience retention graph**, with a note on whether it's above or below typical for its length.
+- **Best time to post:** a heatmap of how your posts did by weekday and time of day (in your Mac's time zone), with your best window, best days and weakest window. Each post is compared with the ones you posted around the same time, so a growing account doesn't skew it. It uses up to 1,000 reels or 200 Shorts once the Views tab has loaded, needs at least 8 posts older than 2 days, and **Use … as my times** makes Compose suggest those times for new posts.
 - **What isn't available:** Instagram's API has no retention graph, and YouTube's API doesn't share the Shorts "stayed to watch vs swiped away" figure, so Cadence can't show those. Instagram marks skip rate as still in development; if your account doesn't get it yet, Cadence says so.
 - Numbers lag 1 to 3 days behind the apps, the same as their own dashboards' API data.
 
