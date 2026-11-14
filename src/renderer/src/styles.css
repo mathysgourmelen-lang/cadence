@@ -77,6 +77,70 @@
   --shadow-pop: 0 24px 60px -16px rgba(10, 10, 30, 0.3), 0 0 0 1px var(--border-strong);
 }
 
+/* Prism: rainbow light behind frosted glass. Dark text colours, glass surfaces. */
+:root[data-theme='prism'] {
+  color-scheme: dark;
+  --bg: #120f24;
+  --bg-content: rgba(18, 14, 38, 0.38);
+  --sidebar: rgba(16, 12, 34, 0.32);
+  --surface: rgba(255, 255, 255, 0.07);
+  --surface-2: rgba(255, 255, 255, 0.11);
+  --surface-3: rgba(255, 255, 255, 0.16);
+  --surface-solid: #1c1838;
+  --popover: rgba(30, 24, 58, 0.86);
+  --border: rgba(255, 255, 255, 0.14);
+  --border-strong: rgba(255, 255, 255, 0.26);
+  --text: #ffffff;
+  --text-2: rgba(255, 255, 255, 0.76);
+  --text-3: rgba(255, 255, 255, 0.52);
+  --brand-1: #ff6a88;
+  --brand-2: #ffb86b;
+  --brand-3: #6b8cff;
+  --brand: linear-gradient(120deg, #ff5e8a 0%, #ffa45c 22%, #ffe36b 40%, #5ef0a8 58%, #4cc9ff 76%, #9a6bff 100%);
+  --accent: #ff7ac6;
+  --accent-soft: rgba(255, 122, 198, 0.2);
+  --focus: rgba(120, 200, 255, 0.55);
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 0 0 0.5px rgba(255, 255, 255, 0.06) inset, 0 18px 50px -18px rgba(6, 2, 30, 0.65);
+  --shadow-pop: 0 30px 70px -14px rgba(6, 2, 30, 0.75), 0 0 0 1px var(--border-strong);
+}
+
+:root[data-theme='prism'] body {
+  background-color: #15112e;
+  background-image:
+    radial-gradient(42% 55% at 8% 12%, rgba(255, 79, 139, 0.85), transparent 70%),
+    radial-gradient(38% 50% at 38% 0%, rgba(255, 168, 76, 0.7), transparent 70%),
+    radial-gradient(40% 50% at 72% 8%, rgba(255, 226, 92, 0.55), transparent 70%),
+    radial-gradient(45% 55% at 96% 40%, rgba(64, 214, 160, 0.6), transparent 70%),
+    radial-gradient(50% 60% at 70% 96%, rgba(62, 170, 255, 0.75), transparent 70%),
+    radial-gradient(48% 60% at 18% 88%, rgba(150, 90, 255, 0.85), transparent 70%),
+    linear-gradient(160deg, #2a1650, #10264a);
+}
+
+:root[data-theme='prism'] .sidebar,
+:root[data-theme='prism'] .main {
+  backdrop-filter: blur(40px) saturate(150%);
+}
+
+:root[data-theme='prism'] .main::before {
+  display: none;
+}
+
+:root[data-theme='prism'] .card {
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.04));
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+:root[data-theme='prism'] .action-bar {
+  background: rgba(26, 20, 56, 0.97);
+  backdrop-filter: blur(24px) saturate(150%);
+  border-top: 1px solid var(--border);
+}
+
+:root[data-theme='prism'] .modal,
+:root[data-theme='prism'] .toast {
+  backdrop-filter: blur(30px) saturate(160%);
+}
+
 * {
   box-sizing: border-box;
 }

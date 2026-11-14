@@ -36,7 +36,8 @@ export default function SettingsView() {
                 options={[
                   { value: 'system', label: 'Auto' },
                   { value: 'light', label: 'Light' },
-                  { value: 'dark', label: 'Dark' }
+                  { value: 'dark', label: 'Dark' },
+                  { value: 'prism', label: 'Prism' }
                 ]}
               />
             </div>

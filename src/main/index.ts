@@ -283,7 +283,7 @@ function broadcast(): void {
 }
 
 function applyAppearance(s: Settings): void {
-  nativeTheme.themeSource = s.appearance
+  nativeTheme.themeSource = s.appearance === 'prism' ? 'dark' : s.appearance
 }
 
 function applyLoginItem(s: Settings): void {

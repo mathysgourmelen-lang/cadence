@@ -135,7 +135,7 @@ export type PostStatus =
   | 'canceled'
 
 export interface Settings {
-  appearance: 'system' | 'dark' | 'light'
+  appearance: 'system' | 'dark' | 'light' | 'prism'
   launchAtLogin: boolean
   keepAwake: boolean
   /** Minutes before the publish time to upload Instagram videos so they post on time. */
