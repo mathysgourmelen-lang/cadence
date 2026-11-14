@@ -61,7 +61,10 @@ const theme = process.argv[4] || 'dark'
       ok: true,
       value: Array.from({ length: 100 }, (_, i) => {
         const at = (i + 1) / 100
-        return { at, watch: Math.max(0.28, 1.08 * Math.exp(-at * 1.1) - (i < 4 ? 0.06 * (4 - i) : 0) + (i > 88 ? 0.08 : 0)), relative: 0.63 }
+        let w = 1.08 * Math.exp(-at * 0.9) - (i < 4 ? 0.06 * (4 - i) : 0)
+        if (at > 0.34) w -= Math.min(0.16, (at - 0.34) * 2.6) // cliff
+        if (at > 0.68) w += Math.min(0.08, (at - 0.68) * 1.6) // rewatch bump
+        return { at, watch: Math.max(0.28, w), relative: 0.63 }
       })
     }))
   })
@@ -91,9 +94,20 @@ const theme = process.argv[4] || 'dark'
   await shot('analytics-yt')
   await win.click('.an-table tbody tr:nth-child(1)')
   await win.waitForSelector('.ret-chart svg')
-  await win.hover('.ret-chart svg', { position: { x: 220, y: 90 } })
-  await win.waitForTimeout(500)
+  await win.waitForSelector('.replay-frame video')
+  await win.evaluate(async () => {
+    const v = document.querySelector('.replay-frame video')
+    await new Promise((r) => (v.readyState >= 1 ? r() : v.addEventListener('loadedmetadata', r, { once: true })))
+    v.currentTime = v.duration * 0.37
+    await new Promise((r) => v.addEventListener('seeked', r, { once: true }))
+  })
+  await win.waitForTimeout(600)
   await shot('analytics-yt-retention')
+  await win.keyboard.press('Escape')
+  await win.click('.an-table tbody tr:nth-child(2)')
+  await win.waitForSelector('.replay-empty button')
+  await win.waitForTimeout(400)
+  await shot('analytics-yt-replay-empty')
   await win.keyboard.press('Escape')
   await nav('Queue')
   await shot('queue')

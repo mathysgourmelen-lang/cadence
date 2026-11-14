@@ -6,9 +6,10 @@ import { Avatar, Modal, Segmented, Spinner, useFeedback } from '../ui'
 import { cx, relative } from '../util'
 import { full, Num } from './Views'
 import { TRAFFIC_LABELS } from '../../../shared/traffic'
-import { accountKey, type ReelAnalytics, type RetentionPoint, type TimingSample, type YtVideoAnalytics } from '../../../shared/types'
+import { accountKey, type ReelAnalytics, type ReplaySource, type RetentionPoint, type TimingSample, type YtVideoAnalytics } from '../../../shared/types'
 import { analyzeTiming, BLOCK_HOURS, BLOCKS, blockLabel, MIN_SAMPLES, suggestedTimes, type Bucket } from '../../../shared/bestTime'
 import { formatHHMM, timezoneName } from '../util'
+import { retentionMoments, watchAt, type RetentionMoment } from '../../../shared/retention'
 import { analyzeLength, lengthLabel, MIN_LENGTH_SAMPLES, shortLengthLabel, type LengthBand, type LengthSample } from '../../../shared/videoLength'
 
 type Platform = 'instagram' | 'youtube'
@@ -653,7 +654,7 @@ function YouTubePanel({
         retention graph instead. Data can lag 2 to 3 days behind YouTube Studio.
       </p>
 
-      <Modal open={!!open} onClose={() => setOpen(null)} width={720}>
+      <Modal open={!!open} onClose={() => setOpen(null)} width={960}>
         {open && <VideoDetail v={open} channelId={channelId} onClose={() => setOpen(null)} />}
       </Modal>
     </>
@@ -710,7 +711,7 @@ function VideoDetail({ v, channelId, onClose }: { v: YtVideoAnalytics; channelId
           Not enough views yet for YouTube to share a retention graph.
         </div>
       ) : (
-        <RetentionChart points={points} durationSec={v.durationSec} />
+        <RetentionReplay v={v} points={points} />
       )}
       <div className="an-facts">
         {facts.map(([k, val]) => (
@@ -724,8 +725,161 @@ function VideoDetail({ v, channelId, onClose }: { v: YtVideoAnalytics; channelId
   )
 }
 
+function clock(sec: number): string {
+  const s = Math.max(0, Math.round(sec))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+/** The Short playing next to its retention graph, with the playhead and the moments people leave. */
+function RetentionReplay({ v, points }: { v: YtVideoAnalytics; points: RetentionPoint[] }) {
+  const { toast } = useFeedback()
+  const [src, setSrc] = useState<ReplaySource | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [at, setAt] = useState<number | null>(null)
+  const [nonce, setNonce] = useState(0)
+  const ref = useRef<HTMLVideoElement>(null)
+  const moments = useMemo(() => retentionMoments(points, v.durationSec), [points, v.durationSec])
+
+  useEffect(() => {
+    let alive = true
+    api
+      .replayFind(v.id, v.durationSec, v.title)
+      .then((r) => alive && setSrc(r))
+      .catch(() => alive && setSrc({ found: false }))
+    return () => {
+      alive = false
+    }
+  }, [v.id, v.durationSec, v.title])
+
+  // Follow the video smoothly while it plays.
+  useEffect(() => {
+    if (!src?.found) return
+    let raf = 0
+    let last = -1
+    const tick = () => {
+      const el = ref.current
+      if (el && el.duration) {
+        const f = el.currentTime / el.duration
+        if (Math.abs(f - last) > 0.0015) {
+          last = f
+          setAt(f)
+        }
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [src, nonce])
+
+  const seek = (f: number, play = true) => {
+    const el = ref.current
+    if (!el || !el.duration) return
+    el.currentTime = Math.max(0, Math.min(el.duration - 0.05, f * el.duration))
+    if (play) void el.play()
+  }
+
+  const pick = async () => {
+    setBusy(true)
+    try {
+      const r = await api.replayPick(v.id, v.durationSec)
+      if (r.found) {
+        setSrc(r)
+        setNonce((n) => n + 1)
+        if (r.mismatch) toast('err', "That file's length doesn't match this Short, so the graph may not line up.")
+      }
+    } catch (e) {
+      toast('err', (e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const dur = v.durationSec
+  const when = (f: number) => (dur ? clock(f * dur) : `${Math.round(f * 100)}%`)
+  const live = at != null ? watchAt(points, Math.max(points[0].at, at)) : null
+
+  return (
+    <div className="replay">
+      <div className="replay-video">
+        {src?.found ? (
+          <>
+            <div className="replay-frame">
+              <video key={nonce} ref={ref} src={`${api.replayUrl(v.id)}?n=${nonce}`} controls playsInline preload="auto" />
+              {live != null && (
+                <span className="replay-live">
+                  <b>{Math.round(live * 100)}%</b> still watching
+                </span>
+              )}
+            </div>
+            <div className="replay-file faint">
+              <span className="ellipsis" title={src.name}>
+                {src.source === 'cadence' ? 'Posted with Cadence' : src.name}
+              </span>
+              <button className="link-btn" onClick={pick} disabled={busy}>
+                Change
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="replay-empty">
+            {src == null ? (
+              <Spinner />
+            ) : (
+              <>
+                <Icon.Film size={26} />
+                <b>Play it next to the graph</b>
+                <span>
+                  {src.candidates
+                    ? `${src.candidates} videos in your Library folder have this length. Choose the right one.`
+                    : "YouTube doesn't let apps download your videos, so choose the file on your Mac once."}
+                </span>
+                <button className="btn sm primary" onClick={pick} disabled={busy}>
+                  {busy ? <Spinner /> : null} Choose video file
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="replay-chart">
+        <RetentionChart points={points} durationSec={dur} playAt={src?.found ? at : null} moments={moments} onSeek={src?.found ? seek : undefined} />
+        {moments.length > 0 && (
+          <div className="replay-moments">
+            {moments.map((m) => (
+              <button
+                key={`${m.kind}${m.from}`}
+                className={cx('moment', m.kind)}
+                disabled={!src?.found}
+                onClick={() => seek(Math.max(0, m.from - (dur ? 1.5 / dur : 0.03)))}
+                title={src?.found ? 'Play this moment' : undefined}
+              >
+                <span className="moment-dot" />
+                <b>{m.kind === 'drop' ? `${when(m.from)}–${when(m.to)}` : when(m.from)}</b>
+                <span>{m.kind === 'drop' ? `${Math.round(m.change * 100)}% of viewers leave` : `${Math.round(m.change * 100)}% rewatch this part`}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {src?.found && <p className="faint small replay-hint">Click the graph to jump to that moment.</p>}
+      </div>
+    </div>
+  )
+}
+
 /** One series: share of viewers still watching across the video's length. */
-function RetentionChart({ points, durationSec }: { points: RetentionPoint[]; durationSec?: number }) {
+function RetentionChart({
+  points,
+  durationSec,
+  playAt,
+  moments = [],
+  onSeek
+}: {
+  points: RetentionPoint[]
+  durationSec?: number
+  playAt?: number | null
+  moments?: RetentionMoment[]
+  onSeek?: (at: number) => void
+}) {
   const [hover, setHover] = useState<number | null>(null)
   const W = 640
   const H = 220
@@ -759,6 +913,14 @@ function RetentionChart({ points, durationSec }: { points: RetentionPoint[]; dur
           setHover(best)
         }}
         onMouseLeave={() => setHover(null)}
+        onClick={(e) => {
+          if (!onSeek) return
+          const r = e.currentTarget.getBoundingClientRect()
+          const px = ((e.clientX - r.left) / r.width) * W
+          const f = points[0].at + ((px - L) / (W - L - 8)) * (1 - points[0].at)
+          onSeek(Math.max(0, Math.min(1, f)))
+        }}
+        style={onSeek ? { cursor: 'pointer' } : undefined}
       >
         <defs>
           <linearGradient id="retg" x1="0" y1="0" x2="0" y2="1">
@@ -783,7 +945,23 @@ function RetentionChart({ points, durationSec }: { points: RetentionPoint[]; dur
           )
         })}
         <path d={area} fill="url(#retg)" />
+        {moments.map((m) => (
+          <rect
+            key={`${m.kind}${m.from}`}
+            x={x(Math.max(points[0].at, m.from))}
+            y={T}
+            width={Math.max(3, x(m.to) - x(Math.max(points[0].at, m.from)))}
+            height={H - T - B}
+            className={cx('ret-moment', m.kind)}
+          />
+        ))}
         <path d={line} fill="none" stroke="var(--yt)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        {playAt != null && (
+          <g className="ret-playhead">
+            <line x1={x(Math.max(points[0].at, playAt))} x2={x(Math.max(points[0].at, playAt))} y1={T} y2={H - B} />
+            <circle cx={x(Math.max(points[0].at, playAt))} cy={y(watchAt(points, Math.max(points[0].at, playAt)) ?? 0)} r="5" />
+          </g>
+        )}
         {h && (
           <>
             <line x1={x(h.at)} x2={x(h.at)} y1={T} y2={H - B} stroke="var(--border-strong)" strokeWidth="1" />

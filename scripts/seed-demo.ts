@@ -66,7 +66,7 @@ async function add(file: string, when: string, cap: string, title: string, ig: P
   await add('latte-art.mp4', at(51, 15), 'Latte art in slow motion never gets old ☕️ #coffee #latteart', 'Latte art in slow motion ☕️', { accountId: IG2 }, { enabled: false })
   await add('tokyo.mp4', at(98), 'Golden hour in Shibuya 🌆 #tokyo #travel', 'Golden hour in Shibuya', { enabled: false }, {})
   await add('latte-art.mp4', at(75), '15-minute garlic pasta 🍝 #recipe #pasta', '15-minute garlic pasta 🍝', { accountId: IG2 }, { accountId: YT2 })
-  await add('morning-routine.mp4', at(-22), 'Studio vlog #12 🎙️', 'Studio vlog #12', { state: 'published', url: 'https://instagram.com/reel/x', publishedAt: at(-22) }, { state: 'published', url: 'https://youtube.com/shorts/y', publishedAt: at(-22) })
+  await add('morning-routine.mp4', at(-22), 'Studio vlog #12 🎙️', 'Studio vlog #12', { state: 'published', url: 'https://instagram.com/reel/x', publishedAt: at(-22) }, { state: 'published', url: 'https://youtube.com/shorts/y', publishedAt: at(-22), videoId: 'vid0abcdef' })
   await add('desk-setup.mp4', at(-46), 'Sunset from 120m up 🚁', 'Sunset from 120m up', { state: 'failed', error: 'Instagram could not process this video (ERROR). Check the format: H.264, AAC audio, 23–60 fps.', attempts: 1 }, { state: 'published', url: 'https://youtube.com/shorts/z', publishedAt: at(-46) })
   // Library folder + view counts for the Library and Views tabs.
   store.setSettings({ libraryFolder: videos })

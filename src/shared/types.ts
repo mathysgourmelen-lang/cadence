@@ -377,6 +377,17 @@ export interface RetentionPoint {
   relative: number | null
 }
 
+/** Where the local copy of a Short comes from, for "retention replay". */
+export interface ReplaySource {
+  found: boolean
+  name?: string
+  source?: 'cadence' | 'picked' | 'folder'
+  /** Files in the Library folder with the right length, when none could be chosen. */
+  candidates?: number
+  /** Set when a picked file's length doesn't match the Short. */
+  mismatch?: boolean
+}
+
 export interface IgAnalytics {
   fetchedAt: string
   reels: ReelAnalytics[]

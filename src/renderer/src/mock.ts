@@ -213,6 +213,16 @@ export const mockApi: CadenceApi = {
     state = { ...state, accounts: { ...state.accounts, youtube: state.accounts.youtube.filter((a) => a.id !== id) } }
     emit()
   },
+  async replayFind() {
+    return { found: true, name: 'morning-routine-v3.mp4', source: 'cadence' as const }
+  },
+  async replayPick() {
+    return { found: true, name: 'picked.mp4', source: 'picked' as const }
+  },
+  async replayForget() {},
+  replayUrl() {
+    return '/demo/clip1.mp4'
+  },
   async pickYouTubeThumbnail() {
     await delay()
     return { path: '/demo/ytthumb.jpg', width: 1280, height: 720, sizeBytes: 412_000 }

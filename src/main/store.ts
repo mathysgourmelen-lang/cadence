@@ -41,6 +41,8 @@ export interface PersistedState {
   quota: { day: string; used: number }
   insights?: InsightsState
   analytics?: AnalyticsState
+  /** Local video files for YouTube videos, for retention replay. */
+  replayFiles?: Record<string, { path: string; source: 'picked' | 'folder' }>
 }
 
 export const DEFAULT_ACCOUNTS: AccountsState = {
@@ -157,7 +159,8 @@ export class Store extends EventEmitter {
         },
         quota: raw.quota ?? fresh.quota,
         insights: !isV1 && raw.insights ? { ...EMPTY_INSIGHTS, ...raw.insights, refreshing: false } : undefined,
-        analytics: !isV1 && raw.analytics ? { ...EMPTY_ANALYTICS, ...raw.analytics, refreshing: false } : undefined
+        analytics: !isV1 && raw.analytics ? { ...EMPTY_ANALYTICS, ...raw.analytics, refreshing: false } : undefined,
+        replayFiles: raw.replayFiles && typeof raw.replayFiles === 'object' ? raw.replayFiles : undefined
       }
       if (isV1) {
         // Keep the old file in case anything goes wrong.
@@ -320,6 +323,18 @@ export class Store extends EventEmitter {
     for (const k of Object.keys(patch) as (keyof InsightsState)[]) if (patch[k] === undefined) delete (this.state.insights as unknown as Record<string, unknown>)[k]
     this.persist()
     return this.state.insights
+  }
+
+  get replayFiles(): Record<string, { path: string; source: 'picked' | 'folder' }> {
+    return this.state.replayFiles ?? {}
+  }
+
+  setReplayFile(videoId: string, file: { path: string; source: 'picked' | 'folder' } | null): void {
+    const next = { ...this.replayFiles }
+    if (file) next[videoId] = file
+    else delete next[videoId]
+    this.state.replayFiles = next
+    this.persist()
   }
 
   setAnalytics(patch: Partial<AnalyticsState>): AnalyticsState {

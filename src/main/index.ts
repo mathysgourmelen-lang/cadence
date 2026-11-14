@@ -15,14 +15,16 @@ import {
   Tray,
   type MenuItemConstructorOptions
 } from 'electron'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { Store, type Cipher } from './store'
 import { saveYtTokens, Scheduler, ytTokensFor } from './scheduler'
 import { InstagramClient, type InstagramCredentials } from './instagram'
 import { YouTubeClient, type YouTubeTokens } from './youtube'
 import { ApiError } from './http'
 import { prepareThumbnail, THUMB_EXTENSIONS } from './ytthumb'
-import { cleanLibrary, importVideo, saveThumbnail, serveLibraryFile } from './media'
+import { cleanLibrary, importVideo, saveThumbnail, serveFile, serveLibraryFile } from './media'
+import { probeMp4 } from './mp4probe'
+import { findReplayFile, knownReplayFile } from './replay'
 import { FolderLibrary } from './folder'
 import { instagramInsights, recordHistory, youtubeInsights } from './insights'
 import { instagramAnalytics, youtubeAnalytics, youtubeRetention } from './analytics'
@@ -40,7 +42,8 @@ import {
   type InstagramPageChoice,
   type Platform,
   type PostDraftInput,
-  type Settings
+  type Settings,
+  type ReplaySource
 } from '../shared/types'
 import { isUpcoming } from '../shared/status'
 
@@ -670,6 +673,34 @@ function registerIpc(): void {
     return store.analytics
   })
 
+  handle('replay:find', (videoId: string, durationSec?: number, title?: string) =>
+    findReplayFile(store, folderLib, String(videoId), typeof durationSec === 'number' ? durationSec : undefined, typeof title === 'string' ? title : undefined)
+  )
+
+  handle('replay:pick', async (videoId: string, durationSec?: number): Promise<ReplaySource> => {
+    const res = await dialog.showOpenDialog(mainWindow!, {
+      title: 'Choose the video file of this Short',
+      defaultPath: store.settings.libraryFolder ?? app.getPath('videos'),
+      properties: ['openFile'],
+      filters: [{ name: 'Videos', extensions: ['mp4', 'mov', 'm4v'] }]
+    })
+    if (res.canceled || !res.filePaths[0]) return { found: false }
+    const path = res.filePaths[0]
+    let fileDuration: number | undefined
+    try {
+      fileDuration = (await probeMp4(path)).durationSec
+    } catch {
+      throw new PostError("Cadence couldn't read that file as a video.")
+    }
+    store.setReplayFile(String(videoId), { path, source: 'picked' })
+    const mismatch = typeof durationSec === 'number' && fileDuration != null && Math.abs(fileDuration - durationSec) > 1.5
+    return { found: true, name: basename(path), source: 'picked', mismatch }
+  })
+
+  handle('replay:forget', (videoId: string) => {
+    store.setReplayFile(String(videoId), null)
+  })
+
   handle('analytics:retention', async (videoId: string, channelId?: string) => {
     const hit = retentionCache.get(String(videoId))
     if (hit && Date.now() - hit.at < 30 * 60_000) return hit.points
@@ -710,6 +741,11 @@ app.whenReady().then(async () => {
   protocol.handle('cadence-media', (req) => {
     const host = new URL(req.url).host
     if (host === 'folder' || host === 'thumbs') return folderLib.serve(store.settings.libraryFolder, host, req)
+    if (host === 'replay') {
+      // Only files Cadence already linked to a YouTube video are served.
+      const file = knownReplayFile(store, decodeURIComponent(new URL(req.url).pathname.slice(1)))
+      return file ? serveFile(file.path, req) : Promise.resolve(new Response('Not found', { status: 404 }))
+    }
     return serveLibraryFile(store.libraryDir, req)
   })
   // Keep view counts fresh in the background so the Views tab has a daily history.

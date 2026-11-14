@@ -4,6 +4,7 @@ import type {
   AnalyticsState,
   ChosenThumbnail,
   RetentionPoint,
+  ReplaySource,
   FolderListing,
   InsightsState,
   ImportedVideo,
@@ -55,6 +56,11 @@ export interface CadenceApi {
   refreshInsights(): Promise<InsightsState>
   refreshAnalytics(): Promise<AnalyticsState>
   retention(videoId: string, channelId?: string): Promise<RetentionPoint[]>
+  /** Finds the local file of a YouTube video for retention replay. */
+  replayFind(videoId: string, durationSec?: number, title?: string): Promise<ReplaySource>
+  replayPick(videoId: string, durationSec?: number): Promise<ReplaySource>
+  replayForget(videoId: string): Promise<void>
+  replayUrl(videoId: string): string
   openExternal(url: string): Promise<void>
   reveal(path: string): Promise<void>
   openDataFolder(): Promise<void>
