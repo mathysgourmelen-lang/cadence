@@ -269,6 +269,11 @@ export const Icon = {
       <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
     </Svg>
   ),
+  Home: (p: P) => (
+    <Svg {...p}>
+      <path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1Z" />
+    </Svg>
+  ),
   Search: (p: P) => (
     <Svg {...p}>
       <circle cx="11" cy="11" r="7" />

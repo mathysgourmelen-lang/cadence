@@ -1,3 +1,4 @@
+import { cx } from '../util'
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../icons'
 import { Segmented } from '../ui'
@@ -98,73 +99,110 @@ export default function PhonePreview({
       <div className="phone-frame">
         <div className="phone-screen" onClick={toggle}>
           <div className="phone-island" />
-          {src ? (
-            <video ref={ref} src={src} poster={poster} autoPlay={seekTo == null} loop muted={muted} playsInline style={{ objectFit: fill ? 'cover' : 'contain' }} />
-          ) : (
-            <div className="phone-placeholder">
-              <Icon.Film size={40} />
+          {/* Phones are taller than 9:16: the apps show the video full width and put their tab bar below it. */}
+          <div className="phone-status" />
+          <div className={cx('phone-stage', fill && 'vertical')}>
+            {src ? (
+              <video ref={ref} src={src} poster={poster} autoPlay={seekTo == null} loop muted={muted} playsInline style={{ objectFit: fill ? 'cover' : 'contain' }} />
+            ) : (
+              <div className="phone-placeholder">
+                <Icon.Film size={40} />
+              </div>
+            )}
+            {safe && <div className="safe-zone" title="Keep text and faces inside this area so the app's buttons don't cover them" />}
+            <div className="phone-ui">
+              {mode === 'reel' ? (
+                <>
+                  <div className="top">
+                    <span>Reels</span>
+                  </div>
+                  <div className="side">
+                    <div>
+                      <Icon.Heart size={22} />
+                      1.2K
+                    </div>
+                    <div>
+                      <Icon.Comment size={22} />
+                      48
+                    </div>
+                    <div>
+                      <Icon.Share size={20} />
+                    </div>
+                    <div>
+                      <Icon.More size={20} />
+                    </div>
+                  </div>
+                  <div className="bottom">
+                    <div className="user">
+                      <div className="avatar">{username.slice(0, 1).toUpperCase()}</div>
+                      {username}
+                      <span className="follow">Follow</span>
+                    </div>
+                    <div className="cap">
+                      <CaptionText text={caption || 'Your caption appears here…'} />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="top">
+                    <span>Shorts</span>
+                  </div>
+                  <div className="side">
+                    <div>
+                      <Icon.ThumbUp size={22} />
+                      3.4K
+                    </div>
+                    <div>
+                      <Icon.Comment size={22} />
+                      112
+                    </div>
+                    <div>
+                      <Icon.Share size={20} />
+                      Share
+                    </div>
+                  </div>
+                  <div className="bottom">
+                    <div className="user">
+                      <div className="avatar">{channel.slice(0, 1).toUpperCase()}</div>@{channel.replace(/\s+/g, '').toLowerCase()}
+                      <span className="yt-sub">Subscribe</span>
+                    </div>
+                    <div className="yt-title">{title || 'Your title appears here…'}</div>
+                  </div>
+                </>
+              )}
             </div>
-          )}
-          {safe && <div className="safe-zone" title="Keep text and faces inside this area so the app's buttons don't cover them" />}
-          <div className="phone-ui">
+          </div>
+          <div className="phone-nav" aria-hidden>
             {mode === 'reel' ? (
               <>
-                <div className="top">
-                  <span>Reels</span>
-                </div>
-                <div className="side">
-                  <div>
-                    <Icon.Heart size={22} />
-                    1.2K
-                  </div>
-                  <div>
-                    <Icon.Comment size={22} />
-                    48
-                  </div>
-                  <div>
-                    <Icon.Share size={20} />
-                  </div>
-                  <div>
-                    <Icon.More size={20} />
-                  </div>
-                </div>
-                <div className="bottom">
-                  <div className="user">
-                    <div className="avatar">{username.slice(0, 1).toUpperCase()}</div>
-                    {username}
-                    <span className="follow">Follow</span>
-                  </div>
-                  <div className="cap">
-                    <CaptionText text={caption || 'Your caption appears here…'} />
-                  </div>
-                </div>
+                <Icon.Home size={19} />
+                <Icon.Search size={19} />
+                <Icon.Plus size={19} />
+                <Icon.Film size={19} />
+                <span className="phone-nav-me">{username.slice(0, 1).toUpperCase()}</span>
               </>
             ) : (
               <>
-                <div className="top">
-                  <span>Shorts</span>
-                </div>
-                <div className="side">
-                  <div>
-                    <Icon.ThumbUp size={22} />
-                    3.4K
-                  </div>
-                  <div>
-                    <Icon.Comment size={22} />
-                    112
-                  </div>
-                  <div>
-                    <Icon.Share size={20} />
-                    Share
-                  </div>
-                </div>
-                <div className="bottom">
-                  <div className="user">
-                    <div className="avatar">{channel.slice(0, 1).toUpperCase()}</div>@{channel.replace(/\s+/g, '').toLowerCase()}
-                    <span className="yt-sub">Subscribe</span>
-                  </div>
-                  <div className="yt-title">{title || 'Your title appears here…'}</div>
-                </div>
+                <span className="phone-nav-item">
+                  <Icon.Home size={17} />
+                  Home
+                </span>
+                <span className="phone-nav-item on">
+                  <Icon.Film size={17} />
+                  Shorts
+                </span>
+                <span className="phone-nav-plus">
+                  <Icon.Plus size={17} />
+                </span>
+                <span className="phone-nav-item">
+                  <Icon.Library size={17} />
+                  Subs
+                </span>
+                <span className="phone-nav-item">
+                  <span className="phone-nav-me">{channel.slice(0, 1).toUpperCase()}</span>
+                  You
+                </span>
               </>
             )}
           </div>

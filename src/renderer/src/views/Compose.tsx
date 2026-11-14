@@ -52,6 +52,8 @@ interface Draft {
 // Drafts survive switching tabs (but not quitting the app).
 let savedDrafts: Draft[] = []
 let savedActive: string | null = null
+/** Requests already acted on. Kept outside the component: Compose remounts every time you open it, and the last request is still in the app state. */
+let handledNonce: number | null = null
 // New videos default to the accounts picked most recently.
 let lastIg: string[] = []
 let lastYt: string[] = []
@@ -215,7 +217,6 @@ export default function Compose() {
   const [previewMode, setPreviewMode] = useState<PreviewMode>('reel')
   const [coverSeek, setCoverSeek] = useState<number | null>(null)
   const [spreadOpen, setSpreadOpen] = useState(false)
-  const handledNonce = useRef<number | null>(null)
   const dragDepth = useRef(0)
 
   const settings = snap!.settings
@@ -238,8 +239,8 @@ export default function Compose() {
 
   // Requests from other screens (edit a post, new post on a calendar day, import).
   useEffect(() => {
-    if (!composeRequest || handledNonce.current === composeRequest.nonce) return
-    handledNonce.current = composeRequest.nonce
+    if (!composeRequest || handledNonce === composeRequest.nonce) return
+    handledNonce = composeRequest.nonce
     if (composeRequest.postId) {
       const p = snap!.posts.find((x) => x.id === composeRequest.postId)
       if (p) {
