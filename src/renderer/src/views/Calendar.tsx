@@ -1,4 +1,4 @@
-import { useMemo, useState, type DragEvent } from 'react'
+import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import { Topbar } from '../App'
 import { api, useApp } from '../state'
 import { Icon, InstagramMark, YouTubeMark } from '../icons'
@@ -7,6 +7,7 @@ import { accountLabel, addDays, cx, sameDay, startOfDay, timeLabel } from '../ut
 import type { Post } from '../../../shared/types'
 import { isEditable, postStatus } from '../../../shared/status'
 import { dayKey } from './DateTimePicker'
+import { calendarItems, type CalendarItem, type OutsidePost } from '../../../shared/calendar'
 
 export default function CalendarView() {
   const { snap, go } = useApp()
@@ -18,16 +19,25 @@ export default function CalendarView() {
   const [dropDay, setDropDay] = useState<string | null>(null)
 
   const byDay = useMemo(() => {
-    const m = new Map<string, Post[]>()
-    for (const p of snap!.posts) {
-      if (!p.scheduledAt || postStatus(p) === 'canceled') continue
-      const k = dayKey(new Date(p.scheduledAt))
+    const m = new Map<string, CalendarItem[]>()
+    for (const it of calendarItems(snap!.posts, snap!.insights, snap!.analytics)) {
+      const k = dayKey(new Date(it.at))
       if (!m.has(k)) m.set(k, [])
-      m.get(k)!.push(p)
+      m.get(k)!.push(it)
     }
-    for (const list of m.values()) list.sort((a, b) => a.scheduledAt!.localeCompare(b.scheduledAt!))
     return m
   }, [snap])
+
+  // Posts made in the Instagram or YouTube app only show up after Cadence reads
+  // the accounts again, so refresh when the numbers are more than 30 minutes old.
+  useEffect(() => {
+    const ins = snap!.insights
+    const connected = snap!.accounts.instagram.length + snap!.accounts.youtube.length > 0
+    const fetched = Object.values(ins.accounts).map((a) => Date.parse(a?.fetchedAt ?? '') || 0)
+    const newest = fetched.length ? Math.max(...fetched) : 0
+    if (connected && !ins.refreshing && Date.now() - newest > 30 * 60_000) void api.refreshInsights().catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const offset = (month.getDay() + 6) % 7
   const start = addDays(month, -offset)
@@ -113,7 +123,10 @@ export default function CalendarView() {
                     <Icon.Plus size={14} />
                   </button>
                 )}
-                {list.slice(0, 4).map((p) => {
+                {list.slice(0, 4).map((it) => {
+                  if (it.kind === 'outside') return <OutsideChip key={it.item.key} o={it.item} />
+                  const p = it.post
+                  const at = new Date(it.at)
                   const st = postStatus(p)
                   const movable = canMove(p)
                   return (
@@ -127,11 +140,11 @@ export default function CalendarView() {
                       }}
                       onDoubleClick={() => (st === 'published' ? go('history') : go('compose', { compose: { postId: p.id } }))}
                       onClick={() => go(st === 'published' || st === 'failed' ? 'history' : 'queue', { highlight: p.id })}
-                      title={[timeLabel(new Date(p.scheduledAt!)), p.video.fileName, p.instagram.enabled && accountLabel(snap!.accounts, 'instagram', p.instagram.accountId), p.youtube.enabled && accountLabel(snap!.accounts, 'youtube', p.youtube.accountId)].filter(Boolean).join(' · ')}
+                      title={[timeLabel(at), p.video.fileName, p.instagram.enabled && accountLabel(snap!.accounts, 'instagram', p.instagram.accountId), p.youtube.enabled && accountLabel(snap!.accounts, 'youtube', p.youtube.accountId)].filter(Boolean).join(' · ')}
                       style={{ cursor: movable ? 'grab' : 'default' }}
                     >
                       {p.video.thumbnailPath ? <img className="thumb" src={api.mediaUrl(p.video.thumbnailPath)} alt="" /> : <div className="thumb" />}
-                      <span className="ellipsis">{timeLabel(new Date(p.scheduledAt!))}</span>
+                      <span className="ellipsis">{timeLabel(at)}</span>
                       <span className="marks">
                         {p.instagram.enabled && <InstagramMark size={12} />}
                         {p.youtube.enabled && <YouTubeMark size={12} />}
@@ -146,5 +159,25 @@ export default function CalendarView() {
         </div>
       </div>
     </>
+  )
+}
+
+/** A post made in the Instagram or YouTube app, read back from the account. */
+function OutsideChip({ o }: { o: OutsidePost }) {
+  const { snap } = useApp()
+  const [broken, setBroken] = useState(false)
+  const at = new Date(o.at)
+  const app = o.platform === 'instagram' ? 'Instagram' : 'YouTube'
+  return (
+    <div
+      className="cal-post published outside"
+      onClick={() => o.url && void api.openExternal(o.url)}
+      title={[timeLabel(at), o.title, accountLabel(snap!.accounts, o.platform, o.accountId), `Posted in the ${app} app. Click to open.`].filter(Boolean).join(' · ')}
+      style={{ cursor: o.url ? 'pointer' : 'default' }}
+    >
+      {o.thumbnailUrl && !broken ? <img className="thumb" src={o.thumbnailUrl} alt="" referrerPolicy="no-referrer" onError={() => setBroken(true)} /> : <div className="thumb" />}
+      <span className="ellipsis">{timeLabel(at)}</span>
+      <span className="marks">{o.platform === 'instagram' ? <InstagramMark size={12} /> : <YouTubeMark size={12} />}</span>
+    </div>
   )
 }
