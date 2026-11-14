@@ -7,6 +7,7 @@ Schedule Instagram Reels and YouTube Shorts from your Mac. Pick MP4s from your c
 ## What it does
 
 - **Drag in videos** (MP4 or MOV). Cadence checks length, aspect ratio, size, codec and frame rate against what Instagram and YouTube accept before you schedule anything.
+- **As many accounts as you like.** Connect several Instagram accounts and YouTube channels, and pick which ones each post goes to.
 - **One caption, two platforms.** The YouTube title fills itself from your caption's first line, with live character, hashtag and mention counters.
 - **Live phone preview** of the Reel and the Short, with a safe-zone overlay and a cover-frame picker.
 - **Custom YouTube thumbnails.** Pick or drop a PNG/JPEG; Cadence fits it to YouTube's 2 MB limit and sets it after upload.

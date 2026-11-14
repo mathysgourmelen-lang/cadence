@@ -86,9 +86,11 @@ This token is short-lived, but Cadence immediately trades it for a permanent one
 
 1. In Cadence open [Accounts](cadence://accounts).
 2. In the Instagram card, paste the **App ID**, **App Secret** and **Access token**.
-3. Click **Connect Instagram**. If you manage several Pages with Instagram accounts, pick the one to post to.
+3. Click **Connect Instagram**. If you manage several Pages with Instagram accounts, tick every account you want to post to.
 
-You should see your @username with a green **Connected** badge.
+You should see your @username with a green **connected** badge.
+
+**More Instagram accounts:** click **Add Instagram account**. Cadence reuses your App ID and Secret, so you only paste a new access token. Make it as in 2.5 while logged in to Facebook with access to that account's Page, and tick that Page and Instagram account in the Facebook window. One token can cover several accounts: Cadence lists them all and you tick the ones to add.
 
 ### Instagram troubleshooting
 
@@ -142,7 +144,9 @@ While your app is in **Testing**, Google signs Cadence out of YouTube **every 7 
 2. Click **Sign in with Google**. Your browser opens.
 3. Choose the account that owns your channel. If you see **"Google hasn't verified this app"**, click **Advanced → Go to Cadence (unsafe)**. It's your own app, so this is expected.
 4. Tick **every** box (manage your YouTube videos, view your YouTube account, and view YouTube Analytics reports), then click **Continue**.
-5. The browser says "YouTube connected". Switch back to Cadence; your channel appears with a green **Connected** badge.
+5. The browser says "YouTube connected". Switch back to Cadence; your channel appears in the YouTube card.
+
+**More channels:** click **Add another channel** and sign in again, choosing the other Google account or brand channel. All channels share the same Client ID. While your Google Cloud app is in Testing, add each extra Google account under **Audience → Test users** first (step 3.2.5). The 100 uploads a day limit is shared by all channels.
 
 <!-- anchor:audit -->
 ### 3.6 If your uploads stay private
@@ -166,7 +170,8 @@ If that happens:
 | --- | --- |
 | "The YouTube Data API v3 is not enabled" | Do step 3.1.3, wait 2 minutes, then retry. |
 | "The YouTube Analytics API is not enabled" | Do step 3.1.4, wait 2 minutes, then click **Refresh** in Analytics. |
-| Analytics says "Cadence needs permission to read your YouTube analytics" | You connected before the Analytics tab existed, or left a box unticked. In Accounts, click **Disconnect** on YouTube, then **Sign in with Google** again and tick every box. Scheduled posts are kept. |
+| Analytics says "Cadence needs permission to read your YouTube analytics" | You connected before the Analytics tab existed, or left a box unticked. In Accounts, click **Add another channel**, choose the same channel and tick every box. Scheduled posts are kept. |
+| The wrong channel was added | Click **Remove** next to it, then **Add another channel** and choose the right account. |
 | "Access blocked: Cadence has not completed the Google verification process" | Your account isn't a test user and the app isn't published. Do step 3.2.5 or 3.4. |
 | "YouTube sign-in expired or was revoked" | Usually the 7-day limit from step 3.4. Publish the app, then click **Reconnect**. |
 | "Google did not return a refresh token" | Go to [myaccount.google.com/permissions](https://myaccount.google.com/permissions), remove Cadence, then sign in again. |
@@ -181,6 +186,8 @@ If that happens:
 2. For each video, choose **Instagram**, **YouTube** or both, write the caption, and check the YouTube title (it's filled from your caption's first line).
 3. Pick a date and time, or **Post now**. With several videos, **Spread schedule** gives each one its own slot (for example every day at 6 PM).
 4. Click **Schedule** (or **Schedule all**).
+
+**Several accounts:** when you've connected more than one Instagram account or YouTube channel, a **Post to** card appears at the top of the post. Tick the accounts this video goes to. Ticking two accounts creates two separate posts (one per account) at the same time, which you can then edit or move on their own. The Queue, Calendar and History show which account each post goes to, the Views tab shows every account plus a combined total, and Analytics has an account switch at the top.
 
 **Custom YouTube thumbnail (optional):** in YouTube details, click **Choose image** (or drop a PNG or JPEG on the box). Cadence shrinks big images to YouTube's 2 MB limit and sets the thumbnail right after the upload. YouTube only allows custom thumbnails on **verified channels**: verify yours once with a phone number at [youtube.com/verify](https://www.youtube.com/verify). If it isn't verified, the Short still posts and the post's activity log explains why the thumbnail was skipped.
 

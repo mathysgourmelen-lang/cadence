@@ -3,7 +3,7 @@ import { Topbar } from '../App'
 import { api, useApp } from '../state'
 import { Icon, InstagramMark, YouTubeMark } from '../icons'
 import { useFeedback } from '../ui'
-import { addDays, cx, sameDay, startOfDay, timeLabel } from '../util'
+import { accountLabel, addDays, cx, sameDay, startOfDay, timeLabel } from '../util'
 import type { Post } from '../../../shared/types'
 import { isEditable, postStatus } from '../../../shared/status'
 import { dayKey } from './DateTimePicker'
@@ -127,7 +127,7 @@ export default function CalendarView() {
                       }}
                       onDoubleClick={() => (st === 'published' ? go('history') : go('compose', { compose: { postId: p.id } }))}
                       onClick={() => go(st === 'published' || st === 'failed' ? 'history' : 'queue', { highlight: p.id })}
-                      title={`${timeLabel(new Date(p.scheduledAt!))} · ${p.video.fileName}`}
+                      title={[timeLabel(new Date(p.scheduledAt!)), p.video.fileName, p.instagram.enabled && accountLabel(snap!.accounts, 'instagram', p.instagram.accountId), p.youtube.enabled && accountLabel(snap!.accounts, 'youtube', p.youtube.accountId)].filter(Boolean).join(' · ')}
                       style={{ cursor: movable ? 'grab' : 'default' }}
                     >
                       {p.video.thumbnailPath ? <img className="thumb" src={api.mediaUrl(p.video.thumbnailPath)} alt="" /> : <div className="thumb" />}

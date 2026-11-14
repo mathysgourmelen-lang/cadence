@@ -34,12 +34,14 @@ export interface CadenceApi {
   postAction(id: string, action: PostAction, platform?: Platform): Promise<Post>
   reschedule(id: string, iso: string): Promise<Post>
   updateSettings(patch: Partial<Settings>): Promise<Settings>
-  instagramConnect(args: { appId: string; appSecret: string; token: string }): Promise<InstagramPageChoice[]>
-  instagramChoose(igUserId: string): Promise<InstagramAccount>
-  instagramDisconnect(): Promise<void>
-  instagramLimit(): Promise<{ used: number; total: number } | null>
-  youtubeConnect(args: { clientId: string; clientSecret: string }): Promise<YouTubeAccount>
-  youtubeDisconnect(): Promise<void>
+  /** App ID and secret can be omitted once an account is connected. */
+  instagramConnect(args: { appId?: string; appSecret?: string; token: string }): Promise<(InstagramPageChoice & { connected: boolean })[]>
+  instagramChoose(igUserIds: string[]): Promise<InstagramAccount[]>
+  instagramDisconnect(id: string): Promise<void>
+  instagramLimit(id?: string): Promise<{ used: number; total: number } | null>
+  /** Signs in one channel. Client ID and secret can be omitted once saved. */
+  youtubeConnect(args: { clientId?: string; clientSecret?: string }): Promise<YouTubeAccount>
+  youtubeDisconnect(id: string): Promise<void>
   importPaths(paths: string[]): Promise<ImportedVideo[]>
   /** Opens a file picker; null when canceled. */
   pickYouTubeThumbnail(): Promise<ChosenThumbnail | null>
@@ -52,7 +54,7 @@ export interface CadenceApi {
   folderUrl(relPath: string): string
   refreshInsights(): Promise<InsightsState>
   refreshAnalytics(): Promise<AnalyticsState>
-  retention(videoId: string): Promise<RetentionPoint[]>
+  retention(videoId: string, channelId?: string): Promise<RetentionPoint[]>
   openExternal(url: string): Promise<void>
   reveal(path: string): Promise<void>
   openDataFolder(): Promise<void>

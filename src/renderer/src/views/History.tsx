@@ -3,7 +3,7 @@ import { Topbar } from '../App'
 import { api, useApp } from '../state'
 import { Icon, InstagramMark, YouTubeMark } from '../icons'
 import { MenuButton, Modal, Segmented, useFeedback, type MenuEntry } from '../ui'
-import { cx, shortDateTime } from '../util'
+import { accountLabel, cx, shortDateTime } from '../util'
 import type { Post } from '../../../shared/types'
 import { isUpcoming, postStatus } from '../../../shared/status'
 import { TargetLine } from './Queue'
@@ -139,6 +139,7 @@ export default function History() {
                 <div key={pl} style={{ marginTop: 14 }}>
                   <div className="row" style={{ marginBottom: 6, fontWeight: 650 }}>
                     {pl === 'instagram' ? <InstagramMark size={16} /> : <YouTubeMark size={16} />} {pl === 'instagram' ? 'Instagram' : 'YouTube'}
+                    {accountLabel(snap!.accounts, pl, t.accountId) && <span className="faint">· {accountLabel(snap!.accounts, pl, t.accountId)}</span>}
                   </div>
                   <div className="card selectable" style={{ padding: 10, maxHeight: 220, overflow: 'auto', fontSize: 12 }}>
                     {t.log.length ? (

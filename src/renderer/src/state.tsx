@@ -56,7 +56,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!alive) return
       setSnap(s)
       // First run: land on Accounts until something is connected, else on the queue.
-      if (!s.accounts.instagram.connected && !s.accounts.youtube.connected) setRoute('accounts')
+      if (!s.accounts.instagram.length && !s.accounts.youtube.length) setRoute('accounts')
       else if (!s.posts.length) setRoute('compose')
     })
     const offState = api.onState((s) => setSnap(s))

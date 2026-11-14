@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, existsSync, renameSync, copyFileSync } from 'n
 import { writeFile, rename, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
-import type { AccountsState, AnalyticsState, InsightsState, Post, Settings } from '../shared/types'
+import { accountKey, type AccountsState, type AnalyticsState, type InsightsState, type InstagramAccount, type Post, type Settings, type YouTubeAccount } from '../shared/types'
 import { DEFAULT_SETTINGS } from '../shared/defaults'
 export { DEFAULT_SETTINGS }
 
@@ -15,18 +15,26 @@ export interface Cipher {
   decrypt(data: Buffer): string
 }
 
+export interface IgSecret {
+  /** Page access token. */
+  accessToken: string
+  /** Long-lived user token (rupload wants this one). */
+  userToken?: string
+}
+
+export interface YtSecret {
+  refreshToken: string
+  accessToken?: string
+  accessTokenExpiresAt?: number
+}
+
 export interface Secrets {
-  instagram?: { accessToken: string; userToken?: string; appSecret?: string }
-  youtube?: {
-    clientSecret: string
-    refreshToken?: string
-    accessToken?: string
-    accessTokenExpiresAt?: number
-  }
+  instagram?: { appSecret?: string; accounts: Record<string, IgSecret> }
+  youtube?: { clientSecret?: string; accounts: Record<string, YtSecret> }
 }
 
 export interface PersistedState {
-  schema: 1
+  schema: 2
   posts: Post[]
   settings: Settings
   accounts: AccountsState
@@ -36,8 +44,58 @@ export interface PersistedState {
 }
 
 export const DEFAULT_ACCOUNTS: AccountsState = {
-  instagram: { connected: false },
-  youtube: { connected: false, quotaUsedToday: 0 }
+  instagram: [],
+  youtube: [],
+  youtubeQuotaUsedToday: 0
+}
+
+const EMPTY_INSIGHTS: InsightsState = { accounts: {}, errors: {}, history: [], refreshing: false }
+const EMPTY_ANALYTICS: AnalyticsState = { instagram: {}, youtube: {}, errors: {}, refreshing: false }
+
+/**
+ * Version 1 kept one Instagram account and one YouTube channel. Moves them into the
+ * multi-account shape and tags every existing post with its account.
+ */
+export function migrateV1(raw: any, secrets: any): { state: Partial<PersistedState>; secrets: Secrets } {
+  const oldIg = raw.accounts?.instagram ?? {}
+  const oldYt = raw.accounts?.youtube ?? {}
+  const igId: string | undefined = oldIg.connected ? oldIg.igUserId : undefined
+  const ytId: string | undefined = oldYt.connected ? (oldYt.channelId ?? 'channel') : undefined
+  const accounts: AccountsState = {
+    instagram: igId
+      ? [{ id: igId, username: oldIg.username ?? '', pageName: oldIg.pageName, profilePictureUrl: oldIg.profilePictureUrl, connectedAt: oldIg.connectedAt, problem: oldIg.problem }]
+      : [],
+    youtube: ytId ? [{ id: ytId, channelTitle: oldYt.channelTitle ?? 'YouTube channel', thumbnailUrl: oldYt.thumbnailUrl, connectedAt: oldYt.connectedAt, problem: oldYt.problem }] : [],
+    instagramAppId: oldIg.appId,
+    youtubeClientId: oldYt.clientId,
+    youtubeHasSecret: !!oldYt.hasSecret,
+    youtubeQuotaUsedToday: 0
+  }
+  const posts: Post[] = Array.isArray(raw.posts) ? raw.posts : []
+  for (const p of posts) {
+    if (p.instagram && !p.instagram.accountId && igId) p.instagram.accountId = igId
+    if (p.youtube && !p.youtube.accountId && ytId) p.youtube.accountId = ytId
+  }
+  // Keep the view history (it can't be fetched again); everything else refreshes.
+  const history = Array.isArray(raw.insights?.history)
+    ? raw.insights.history.map((h: any) => {
+        const values: Record<string, number> = {}
+        if (igId && typeof h.instagram === 'number') values[accountKey('instagram', igId)] = h.instagram
+        if (ytId && typeof h.youtube === 'number') values[accountKey('youtube', ytId)] = h.youtube
+        return { day: h.day, values }
+      })
+    : []
+  const out: Secrets = {}
+  const si = secrets?.instagram
+  if (si) out.instagram = { appSecret: si.appSecret, accounts: igId && si.accessToken ? { [igId]: { accessToken: si.accessToken, userToken: si.userToken } } : {} }
+  const sy = secrets?.youtube
+  if (sy) {
+    out.youtube = {
+      clientSecret: sy.clientSecret,
+      accounts: ytId && sy.refreshToken ? { [ytId]: { refreshToken: sy.refreshToken, accessToken: sy.accessToken, accessTokenExpiresAt: sy.accessTokenExpiresAt } } : {}
+    }
+  }
+  return { state: { posts, accounts, insights: { ...EMPTY_INSIGHTS, history } }, secrets: out }
 }
 
 export function pacificDay(d = new Date()): string {
@@ -63,33 +121,53 @@ export class Store extends EventEmitter {
     this.statePath = join(dataDir, 'state.json')
     this.secretsPath = join(dataDir, 'secrets.bin')
     mkdirSync(this.libraryDir, { recursive: true })
-    this.state = this.loadState()
+    const loaded = this.loadState()
+    this.state = loaded.state
     this.secrets = this.loadSecrets()
+    if (loaded.v1) {
+      const m = migrateV1(loaded.v1, this.secrets)
+      Object.assign(this.state, m.state)
+      this.secrets = m.secrets
+      this.persist()
+      this.persistSecrets()
+    }
   }
 
-  private loadState(): PersistedState {
+  private loadState(): { state: PersistedState; v1?: any } {
     const fresh: PersistedState = {
-      schema: 1,
+      schema: 2,
       posts: [],
       settings: { ...DEFAULT_SETTINGS },
       accounts: structuredClone(DEFAULT_ACCOUNTS),
       quota: { day: pacificDay(), used: 0 }
     }
-    if (!existsSync(this.statePath)) return fresh
+    if (!existsSync(this.statePath)) return { state: fresh }
     try {
-      const raw = JSON.parse(readFileSync(this.statePath, 'utf8')) as Partial<PersistedState>
-      return {
-        schema: 1,
+      const raw = JSON.parse(readFileSync(this.statePath, 'utf8')) as any
+      const isV1 = raw.schema !== 2 && raw.accounts && !Array.isArray(raw.accounts.instagram)
+      const state: PersistedState = {
+        schema: 2,
         posts: Array.isArray(raw.posts) ? raw.posts : [],
         settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) },
         accounts: {
-          instagram: { ...DEFAULT_ACCOUNTS.instagram, ...(raw.accounts?.instagram ?? {}) },
-          youtube: { ...DEFAULT_ACCOUNTS.youtube, ...(raw.accounts?.youtube ?? {}) }
+          ...DEFAULT_ACCOUNTS,
+          ...(isV1 ? {} : (raw.accounts ?? {})),
+          instagram: !isV1 && Array.isArray(raw.accounts?.instagram) ? raw.accounts.instagram : [],
+          youtube: !isV1 && Array.isArray(raw.accounts?.youtube) ? raw.accounts.youtube : []
         },
         quota: raw.quota ?? fresh.quota,
-        insights: raw.insights ? { ...raw.insights, history: raw.insights.history ?? [], refreshing: false } : undefined,
-        analytics: raw.analytics ? { ...raw.analytics, refreshing: false } : undefined
+        insights: !isV1 && raw.insights ? { ...EMPTY_INSIGHTS, ...raw.insights, refreshing: false } : undefined,
+        analytics: !isV1 && raw.analytics ? { ...EMPTY_ANALYTICS, ...raw.analytics, refreshing: false } : undefined
       }
+      if (isV1) {
+        // Keep the old file in case anything goes wrong.
+        try {
+          copyFileSync(this.statePath, `${this.statePath}.v1-backup`)
+        } catch {
+          /* ignore */
+        }
+      }
+      return { state, v1: isV1 ? raw : undefined }
     } catch (err) {
       // Keep a copy of the unreadable file instead of silently losing the queue.
       const backup = `${this.statePath}.corrupt-${Date.now()}`
@@ -99,7 +177,7 @@ export class Store extends EventEmitter {
         /* ignore */
       }
       console.error('state.json unreadable, backed up to', backup, err)
-      return fresh
+      return { state: fresh }
     }
   }
 
@@ -128,13 +206,19 @@ export class Store extends EventEmitter {
   }
   get accounts(): AccountsState {
     this.rollQuotaDay()
-    return { ...this.state.accounts, youtube: { ...this.state.accounts.youtube, quotaUsedToday: this.state.quota.used } }
+    return { ...this.state.accounts, youtubeQuotaUsedToday: this.state.quota.used }
   }
   get insights(): InsightsState {
-    return this.state.insights ?? { history: [], refreshing: false }
+    return this.state.insights ?? EMPTY_INSIGHTS
   }
   get analytics(): AnalyticsState {
-    return this.state.analytics ?? { refreshing: false }
+    return this.state.analytics ?? EMPTY_ANALYTICS
+  }
+  igAccount(id: string | undefined): InstagramAccount | undefined {
+    return id ? this.state.accounts.instagram.find((a) => a.id === id) : undefined
+  }
+  ytAccount(id: string | undefined): YouTubeAccount | undefined {
+    return id ? this.state.accounts.youtube.find((a) => a.id === id) : undefined
   }
   getPost(id: string): Post | undefined {
     return this.state.posts.find((p) => p.id === id)
@@ -178,11 +262,57 @@ export class Store extends EventEmitter {
   }
 
   setAccounts(patch: Partial<AccountsState>): void {
-    this.state.accounts = {
-      instagram: patch.instagram ?? this.state.accounts.instagram,
-      youtube: patch.youtube ?? this.state.accounts.youtube
-    }
+    this.state.accounts = { ...this.state.accounts, ...patch }
     this.persist()
+  }
+
+  /** Adds or replaces one Instagram account. */
+  upsertIgAccount(a: InstagramAccount): void {
+    const list = this.state.accounts.instagram.filter((x) => x.id !== a.id)
+    const i = this.state.accounts.instagram.findIndex((x) => x.id === a.id)
+    list.splice(i < 0 ? list.length : i, 0, a)
+    this.setAccounts({ instagram: list })
+  }
+
+  upsertYtAccount(a: YouTubeAccount): void {
+    const list = this.state.accounts.youtube.filter((x) => x.id !== a.id)
+    const i = this.state.accounts.youtube.findIndex((x) => x.id === a.id)
+    list.splice(i < 0 ? list.length : i, 0, a)
+    this.setAccounts({ youtube: list })
+  }
+
+  patchIgAccount(id: string, patch: Partial<InstagramAccount>): void {
+    const a = this.igAccount(id)
+    if (a) this.upsertIgAccount({ ...a, ...patch })
+  }
+
+  patchYtAccount(id: string, patch: Partial<YouTubeAccount>): void {
+    const a = this.ytAccount(id)
+    if (a) this.upsertYtAccount({ ...a, ...patch })
+  }
+
+  igSecret(id: string | undefined): IgSecret | undefined {
+    return id ? this.secrets.instagram?.accounts?.[id] : undefined
+  }
+
+  ytSecret(id: string | undefined): YtSecret | undefined {
+    return id ? this.secrets.youtube?.accounts?.[id] : undefined
+  }
+
+  setIgSecret(id: string, secret: IgSecret | undefined): void {
+    const cur = this.secrets.instagram ?? { accounts: {} }
+    const accounts = { ...cur.accounts }
+    if (secret) accounts[id] = secret
+    else delete accounts[id]
+    this.setSecrets({ instagram: { ...cur, accounts } })
+  }
+
+  setYtSecret(id: string, secret: YtSecret | undefined): void {
+    const cur = this.secrets.youtube ?? { accounts: {} }
+    const accounts = { ...cur.accounts }
+    if (secret) accounts[id] = secret
+    else delete accounts[id]
+    this.setSecrets({ youtube: { ...cur, accounts } })
   }
 
   setInsights(patch: Partial<InsightsState>): InsightsState {

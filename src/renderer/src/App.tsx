@@ -40,6 +40,14 @@ export default function App() {
     .filter((p) => p.scheduledAt && Date.parse(p.scheduledAt) > now)
     .sort((a, b) => a.scheduledAt!.localeCompare(b.scheduledAt!))[0]
   const { instagram: ig, youtube: yt } = snap.accounts
+  const chips: { key: string; connected: boolean; name: string; pic?: string; problem?: string; mark?: ReactNode }[] = [
+    ...(ig.length
+      ? ig.map((a) => ({ key: `i${a.id}`, connected: true, name: `@${a.username}`, pic: a.profilePictureUrl, problem: a.problem }))
+      : [{ key: 'i', connected: false, name: 'Instagram', mark: <InstagramMark size={22} /> }]),
+    ...(yt.length
+      ? yt.map((a) => ({ key: `y${a.id}`, connected: true, name: a.channelTitle, pic: a.thumbnailUrl, problem: a.problem }))
+      : [{ key: 'y', connected: false, name: 'YouTube', mark: <YouTubeMark size={22} /> }])
+  ]
 
   return (
     <div className={cx('app', isDemo && 'demo')}>
@@ -71,7 +79,7 @@ export default function App() {
           {SETUP.map((n) => (
             <button key={n.route} className={cx('nav-item', route === n.route && 'active')} onClick={() => go(n.route)}>
               <n.icon size={18} /> {n.label}
-              {n.route === 'accounts' && (ig.problem || yt.problem) && <span className="badge hot">!</span>}
+              {n.route === 'accounts' && [...ig, ...yt].some((a) => a.problem) && <span className="badge hot">!</span>}
             </button>
           ))}
         </nav>
@@ -92,16 +100,20 @@ export default function App() {
               <div className="sub">{next ? next.video.fileName : 'Nothing scheduled'}</div>
             </div>
           )}
-          <div className="account-chip" onClick={() => go('accounts')}>
-            {ig.connected ? <Avatar src={ig.profilePictureUrl} name={ig.username} size={22} /> : <InstagramMark size={22} />}
-            <span className="name">{ig.connected ? `@${ig.username}` : 'Instagram'}</span>
-            <span className={cx('dot', ig.connected ? (ig.problem ? 'err' : 'ok') : '')} title={ig.problem} />
-          </div>
-          <div className="account-chip" onClick={() => go('accounts')}>
-            {yt.connected ? <Avatar src={yt.thumbnailUrl} name={yt.channelTitle} size={22} /> : <YouTubeMark size={22} />}
-            <span className="name">{yt.connected ? yt.channelTitle : 'YouTube'}</span>
-            <span className={cx('dot', yt.connected ? (yt.problem ? 'err' : 'ok') : '')} title={yt.problem} />
-          </div>
+          {chips.slice(0, chips.length > 3 ? 2 : 3).map((c) => (
+            <div key={c.key} className="account-chip" onClick={() => go('accounts')}>
+              {c.connected ? <Avatar src={c.pic} name={c.name} size={22} /> : c.mark}
+              <span className="name">{c.name}</span>
+              <span className={cx('dot', c.connected ? (c.problem ? 'err' : 'ok') : '')} title={c.problem} />
+            </div>
+          ))}
+          {chips.length > 3 && (
+            <div className="account-chip" onClick={() => go('accounts')}>
+              <span className="more-dot">+{chips.length - 2}</span>
+              <span className="name">more accounts</span>
+              <span className={cx('dot', chips.slice(2).some((c) => c.problem) ? 'err' : 'ok')} />
+            </div>
+          )}
         </div>
       </aside>
 

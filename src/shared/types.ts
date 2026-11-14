@@ -73,6 +73,8 @@ export interface LogEntry {
 }
 
 export interface InstagramTarget extends TargetBase {
+  /** Instagram account (IG user id) this reel posts to. */
+  accountId?: string
   caption: string
   shareToFeed: boolean
   /** Cover frame offset in milliseconds. */
@@ -85,6 +87,8 @@ export interface InstagramTarget extends TargetBase {
 export type YouTubePrivacy = 'public' | 'unlisted' | 'private'
 
 export interface YouTubeTarget extends TargetBase {
+  /** YouTube channel id this Short uploads to. */
+  accountId?: string
   title: string
   description: string
   tags: string[]
@@ -160,35 +164,40 @@ export interface Snippet {
 }
 
 export interface InstagramAccount {
-  connected: boolean
-  username?: string
-  igUserId?: string
+  /** Instagram user id. */
+  id: string
+  username: string
   pageName?: string
   profilePictureUrl?: string
-  appId?: string
-  hasSecret?: boolean
   connectedAt?: string
   /** Set when the saved sign-in stopped working. */
   problem?: string
 }
 
 export interface YouTubeAccount {
-  connected: boolean
-  channelTitle?: string
-  channelId?: string
+  /** Channel id. */
+  id: string
+  channelTitle: string
   thumbnailUrl?: string
-  clientId?: string
-  hasSecret?: boolean
   connectedAt?: string
   problem?: string
-  /** Uploads started today (Pacific time), as counted by this app. */
-  quotaUsedToday: number
 }
 
 export interface AccountsState {
-  instagram: InstagramAccount
-  youtube: YouTubeAccount
+  instagram: InstagramAccount[]
+  youtube: YouTubeAccount[]
+  /** The Meta app every Instagram account connects through. */
+  instagramAppId?: string
+  /** The Google OAuth client every channel signs in with. */
+  youtubeClientId?: string
+  youtubeHasSecret?: boolean
+  /** Uploads started today (Pacific time) across all channels; the quota is per Cloud project. */
+  youtubeQuotaUsedToday: number
 }
+
+/** Key for per-account data, e.g. "instagram:1784..." */
+export type AccountKey = `${Platform}:${string}`
+export const accountKey = (platform: Platform, id: string): AccountKey => `${platform}:${id}`
 
 export interface InstagramPageChoice {
   pageId: string
@@ -208,8 +217,8 @@ export interface PostDraftInput {
   id?: string
   scheduledAt: string | null
   video: VideoRef
-  instagram: Pick<InstagramTarget, 'enabled' | 'caption' | 'shareToFeed' | 'coverOffsetMs'>
-  youtube: Pick<YouTubeTarget, 'enabled' | 'title' | 'description' | 'tags' | 'privacy' | 'madeForKids' | 'categoryId' | 'mode' | 'thumbnailPath'>
+  instagram: Pick<InstagramTarget, 'enabled' | 'accountId' | 'caption' | 'shareToFeed' | 'coverOffsetMs'>
+  youtube: Pick<YouTubeTarget, 'enabled' | 'accountId' | 'title' | 'description' | 'tags' | 'privacy' | 'madeForKids' | 'categoryId' | 'mode' | 'thumbnailPath'>
   /** false = save as draft. */
   schedule: boolean
 }
@@ -272,6 +281,8 @@ export interface MediaStat {
 }
 
 export interface AccountInsights {
+  platform: Platform
+  accountId: string
   fetchedAt: string
   /** Total views across the account. null when the platform did not return views. */
   totalViews: number | null
@@ -293,17 +304,15 @@ export type TimingSample = [string, number]
 export interface InsightsPoint {
   /** Local day, YYYY-MM-DD. */
   day: string
-  instagram?: number
-  youtube?: number
+  /** Total views per account that day. */
+  values: Partial<Record<AccountKey, number>>
 }
 
 export interface InsightsState {
-  instagram?: AccountInsights
-  youtube?: AccountInsights
+  accounts: Partial<Record<AccountKey, AccountInsights>>
+  errors: Partial<Record<AccountKey, string>>
   /** One point per day, used for the trend lines. */
   history: InsightsPoint[]
-  instagramError?: string
-  youtubeError?: string
   refreshing: boolean
 }
 
@@ -368,10 +377,23 @@ export interface RetentionPoint {
   relative: number | null
 }
 
+export interface IgAnalytics {
+  fetchedAt: string
+  reels: ReelAnalytics[]
+  unavailable: string[]
+}
+
+export interface YtAnalytics {
+  fetchedAt: string
+  videos: YtVideoAnalytics[]
+  traffic: { source: string; views: number }[]
+}
+
 export interface AnalyticsState {
-  instagram?: { fetchedAt: string; reels: ReelAnalytics[]; unavailable: string[] }
-  youtube?: { fetchedAt: string; videos: YtVideoAnalytics[]; traffic: { source: string; views: number }[] }
-  instagramError?: string
-  youtubeError?: string
+  /** By Instagram account id. */
+  instagram: Record<string, IgAnalytics>
+  /** By channel id. */
+  youtube: Record<string, YtAnalytics>
+  errors: Partial<Record<AccountKey, string>>
   refreshing: boolean
 }

@@ -3,17 +3,18 @@ import { Topbar } from '../App'
 import { api, useApp } from '../state'
 import { Icon, InstagramMark, YouTubeMark } from '../icons'
 import { Avatar, Progress, Spinner, useFeedback } from '../ui'
-import type { InstagramPageChoice } from '../../../shared/types'
+import { cx } from '../util'
+import type { InstagramAccount, InstagramPageChoice, Post, YouTubeAccount } from '../../../shared/types'
 import { DAILY_UPLOADS } from './quota'
 
 export default function Accounts() {
   const { snap } = useApp()
-  const neither = !snap!.accounts.instagram.connected && !snap!.accounts.youtube.connected
+  const none = !snap!.accounts.instagram.length && !snap!.accounts.youtube.length
   return (
     <>
-      <Topbar title="Accounts" subtitle="Connect once. Your keys stay on this Mac, encrypted in the Keychain." />
+      <Topbar title="Accounts" subtitle="Connect as many accounts as you like. Your keys stay on this Mac, encrypted in the Keychain." />
       <div className="page">
-        {neither && (
+        {none && (
           <div className="notice" style={{ marginBottom: 18, maxWidth: 1100 }}>
             <Icon.Sparkle size={16} />
             <div>
@@ -30,28 +31,41 @@ export default function Accounts() {
   )
 }
 
+/** Posts still waiting to go out on this account. */
+function pendingFor(posts: Post[], platform: 'instagram' | 'youtube', id: string): number {
+  return posts.filter((p) => {
+    const t = platform === 'instagram' ? p.instagram : p.youtube
+    return t.enabled && t.accountId === id && ['scheduled', 'missed', 'uploading', 'processing', 'ready', 'publishing'].includes(t.state)
+  }).length
+}
+
 function InstagramCard() {
   const { snap, go } = useApp()
-  const { toast, confirm } = useFeedback()
-  const acc = snap!.accounts.instagram
-  const [appId, setAppId] = useState(acc.appId ?? '')
+  const { toast } = useFeedback()
+  const accounts = snap!.accounts.instagram
+  const savedApp = snap!.accounts.instagramAppId
+  const [adding, setAdding] = useState(false)
+  const [changeApp, setChangeApp] = useState(false)
+  const [appId, setAppId] = useState(savedApp ?? '')
   const [appSecret, setAppSecret] = useState('')
   const [token, setToken] = useState('')
   const [busy, setBusy] = useState(false)
-  const [choices, setChoices] = useState<InstagramPageChoice[] | null>(null)
-  const [limit, setLimit] = useState<{ used: number; total: number } | null>(null)
-  const [reconnecting, setReconnecting] = useState(false)
+  const [choices, setChoices] = useState<(InstagramPageChoice & { connected: boolean })[] | null>(null)
+  const [picked, setPicked] = useState<string[]>([])
 
-  useEffect(() => {
-    if (acc.connected) api.instagramLimit().then(setLimit).catch(() => setLimit(null))
-  }, [acc.connected])
+  const needApp = !savedApp || changeApp
+  const showForm = (adding || !accounts.length) && !choices
 
   async function connect() {
     setBusy(true)
     try {
-      const list = await api.instagramConnect({ appId, appSecret, token })
-      if (list.length === 1) await choose(list[0].igUserId)
-      else setChoices(list)
+      const list = await api.instagramConnect(needApp ? { appId, appSecret, token } : { token })
+      if (list.length === 1) await choose([list[0].igUserId])
+      else {
+        setChoices(list)
+        const fresh = list.filter((c) => !c.connected).map((c) => c.igUserId)
+        setPicked(fresh.length ? fresh : list.map((c) => c.igUserId))
+      }
     } catch (e) {
       toast('err', (e as Error).message)
     } finally {
@@ -59,23 +73,23 @@ function InstagramCard() {
     }
   }
 
-  async function choose(id: string) {
+  async function choose(ids: string[]) {
     setBusy(true)
     try {
-      const a = await api.instagramChoose(id)
+      const all = await api.instagramChoose(ids)
+      const names = all.filter((a) => ids.includes(a.id)).map((a) => `@${a.username}`)
       setChoices(null)
       setToken('')
       setAppSecret('')
-      setReconnecting(false)
-      toast('ok', `Connected @${a.username}.`)
+      setAdding(false)
+      setChangeApp(false)
+      toast('ok', `Connected ${names.join(', ')}.`)
     } catch (e) {
       toast('err', (e as Error).message)
     } finally {
       setBusy(false)
     }
   }
-
-  const showForm = !acc.connected || reconnecting
 
   return (
     <div className="card account-card">
@@ -86,101 +100,169 @@ function InstagramCard() {
           <h3>Instagram</h3>
           <div className="faint small">Reels via the Instagram Graph API</div>
         </div>
-        {acc.connected && !acc.problem && <span className="pill ok">Connected</span>}
-        {acc.problem && <span className="pill err">Needs attention</span>}
+        {accounts.length > 0 && (
+          <span className={cx('pill', accounts.some((a) => a.problem) ? 'err' : 'ok')}>
+            {accounts.some((a) => a.problem) ? 'Needs attention' : `${accounts.length} connected`}
+          </span>
+        )}
       </div>
 
-      {acc.connected && (
-        <div className="connected-box" style={{ marginBottom: 14 }}>
-          <Avatar src={acc.profilePictureUrl} name={acc.username} size={44} />
-          <div className="grow">
-            <div style={{ fontWeight: 650 }}>@{acc.username}</div>
-            <div className="faint small">Facebook Page: {acc.pageName}</div>
-          </div>
-          <button className="btn sm" onClick={() => setReconnecting((r) => !r)}>
-            {reconnecting ? 'Cancel' : 'Reconnect'}
-          </button>
-          <button
-            className="btn sm ghost danger"
-            onClick={async () => {
-              if (await confirm({ title: 'Disconnect Instagram?', body: 'Scheduled reels will fail until you connect again.', confirm: 'Disconnect', danger: true })) await api.instagramDisconnect()
-            }}
-          >
-            Disconnect
-          </button>
-        </div>
+      {accounts.map((a) => (
+        <IgRow key={a.id} a={a} onReconnect={() => (setAdding(true), setChoices(null))} />
+      ))}
+
+      {accounts.length > 0 && !adding && !choices && (
+        <button className="btn add-account" onClick={() => setAdding(true)}>
+          <Icon.Plus size={15} /> Add Instagram account
+        </button>
       )}
 
-      {acc.problem && (
-        <div className="notice err" style={{ marginBottom: 14 }}>
-          <Icon.Alert size={16} />
-          <div>{acc.problem}</div>
-        </div>
-      )}
-
-      {acc.connected && limit && !reconnecting && (
-        <div style={{ marginBottom: 6 }}>
-          <div className="row small" style={{ marginBottom: 6 }}>
-            <span className="muted grow">Posts published by apps in the last 24 hours</span>
-            <span style={{ fontWeight: 650 }}>
-              {limit.used} / {limit.total}
-            </span>
-          </div>
-          <Progress value={limit.used / Math.max(1, limit.total)} />
-        </div>
-      )}
-
-      {showForm && !choices && (
-        <>
-          <ol className="steps-mini">
-            <li>Switch your Instagram to a Business or Creator account and link it to a Facebook Page.</li>
-            <li>Create a Meta app and add the permissions listed in the guide.</li>
-            <li>Generate a token in Graph API Explorer and paste it below.</li>
-          </ol>
-          <div className="field">
-            <label>Meta App ID</label>
-            <input className="input mono" placeholder="1234567890123456" value={appId} onChange={(e) => setAppId(e.target.value)} />
-          </div>
-          <div className="field">
-            <label>App Secret</label>
-            <input className="input mono" type="password" placeholder="32 characters, from App settings → Basic" value={appSecret} onChange={(e) => setAppSecret(e.target.value)} />
-          </div>
+      {showForm && (
+        <div className={cx(accounts.length > 0 && 'add-form')}>
+          {accounts.length > 0 ? (
+            <p className="muted small" style={{ marginTop: 0 }}>
+              Each Instagram account needs its own Facebook Page. In Graph API Explorer, generate a new token and tick every Page you want (or "Opt in to all current and future Pages"), then paste it here. You'll pick the accounts next.
+            </p>
+          ) : (
+            <ol className="steps-mini">
+              <li>Switch your Instagram to a Business or Creator account and link it to a Facebook Page.</li>
+              <li>Create a Meta app and add the permissions listed in the guide.</li>
+              <li>Generate a token in Graph API Explorer and paste it below.</li>
+            </ol>
+          )}
+          {needApp ? (
+            <>
+              <div className="field">
+                <label>Meta App ID</label>
+                <input className="input mono" placeholder="1234567890123456" value={appId} onChange={(e) => setAppId(e.target.value)} />
+              </div>
+              <div className="field">
+                <label>App Secret</label>
+                <input className="input mono" type="password" placeholder="32 characters, from App settings → Basic" value={appSecret} onChange={(e) => setAppSecret(e.target.value)} />
+              </div>
+            </>
+          ) : (
+            <div className="saved-app">
+              <span className="faint small">
+                Meta app <span className="mono">{savedApp}</span>
+              </span>
+              <button className="btn ghost sm" onClick={() => setChangeApp(true)}>
+                Change
+              </button>
+            </div>
+          )}
           <div className="field">
             <label>Access token from Graph API Explorer</label>
             <textarea className="input mono" style={{ minHeight: 76 }} placeholder="EAAG…" value={token} onChange={(e) => setToken(e.target.value)} />
-            <div className="help">Cadence swaps it for a long-lived token that doesn't expire, so you only do this once.</div>
+            <div className="help">Cadence swaps it for long-lived Page tokens that don't expire.</div>
           </div>
           <div className="row">
             <button className="btn ghost" onClick={() => go('guide', { guideAnchor: 'instagram' })}>
-              <Icon.Guide size={16} /> Step-by-step guide
+              <Icon.Guide size={16} /> Guide
             </button>
             <div className="grow" />
-            <button className="btn primary" disabled={busy || !appId || !appSecret || !token} onClick={connect}>
-              {busy ? <Spinner /> : <Icon.Link size={16} />} Connect Instagram
+            {accounts.length > 0 && (
+              <button className="btn ghost" onClick={() => (setAdding(false), setChangeApp(false))}>
+                Cancel
+              </button>
+            )}
+            <button className="btn primary" disabled={busy || !token || (needApp && (!appId || !appSecret))} onClick={connect}>
+              {busy ? <Spinner /> : <Icon.Link size={16} />} Continue
             </button>
           </div>
-        </>
+        </div>
       )}
 
       {choices && (
-        <>
+        <div className={cx(accounts.length > 0 && 'add-form')}>
           <div className="label" style={{ marginBottom: 10 }}>
-            Choose the account to post to
+            Choose the accounts to post to
           </div>
-          {choices.map((c) => (
-            <button key={c.igUserId} className="connected-box" style={{ width: '100%', marginBottom: 8, textAlign: 'left' }} disabled={busy} onClick={() => choose(c.igUserId)}>
-              <Avatar src={c.profilePictureUrl} name={c.username} size={36} />
-              <div className="grow">
-                <div style={{ fontWeight: 650 }}>@{c.username}</div>
-                <div className="faint small">{c.pageName}</div>
-              </div>
-              <Icon.ChevronRight size={16} />
+          {choices.map((c) => {
+            const on = picked.includes(c.igUserId)
+            return (
+              <button
+                key={c.igUserId}
+                className={cx('connected-box choice', on && 'on')}
+                disabled={busy}
+                onClick={() => setPicked((p) => (on ? p.filter((x) => x !== c.igUserId) : [...p, c.igUserId]))}
+              >
+                <span className={cx('check-dot', on && 'on')}>{on && <Icon.Check size={12} />}</span>
+                <Avatar src={c.profilePictureUrl} name={c.username} size={36} />
+                <div className="grow">
+                  <div style={{ fontWeight: 650 }}>@{c.username}</div>
+                  <div className="faint small">
+                    {c.pageName}
+                    {c.connected && ' · already connected, will refresh its sign-in'}
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+          <div className="row" style={{ marginTop: 6 }}>
+            <button className="btn ghost sm" onClick={() => setChoices(null)}>
+              Back
             </button>
-          ))}
-          <button className="btn ghost sm" onClick={() => setChoices(null)}>
-            Back
+            <div className="grow" />
+            <button className="btn primary" disabled={busy || !picked.length} onClick={() => choose(picked)}>
+              {busy ? <Spinner /> : <Icon.Check size={16} />} Connect {picked.length === 1 ? '1 account' : `${picked.length} accounts`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function IgRow({ a, onReconnect }: { a: InstagramAccount; onReconnect: () => void }) {
+  const { snap } = useApp()
+  const { confirm } = useFeedback()
+  const [limit, setLimit] = useState<{ used: number; total: number } | null>(null)
+  useEffect(() => {
+    api
+      .instagramLimit(a.id)
+      .then(setLimit)
+      .catch(() => setLimit(null))
+  }, [a.id])
+  const pending = pendingFor(snap!.posts, 'instagram', a.id)
+  return (
+    <div className="acct-row">
+      <div className="connected-box">
+        <Avatar src={a.profilePictureUrl} name={a.username} size={42} />
+        <div className="grow" style={{ minWidth: 0 }}>
+          <div className="ellipsis" style={{ fontWeight: 650 }}>
+            @{a.username}
+          </div>
+          <div className="faint small ellipsis">
+            {a.pageName ? `Page: ${a.pageName}` : 'Facebook Page linked'}
+            {limit && ` · ${limit.used}/${limit.total} posts in 24 h`}
+          </div>
+        </div>
+        {a.problem && (
+          <button className="btn sm" onClick={onReconnect}>
+            Reconnect
           </button>
-        </>
+        )}
+        <button
+          className="btn sm ghost danger"
+          onClick={async () => {
+            const ok = await confirm({
+              title: `Remove @${a.username}?`,
+              body: pending ? `${pending} scheduled reel${pending === 1 ? '' : 's'} for this account will fail until you connect it again or pick another account.` : 'You can connect it again any time.',
+              confirm: 'Remove',
+              danger: true
+            })
+            if (ok) await api.instagramDisconnect(a.id)
+          }}
+        >
+          Remove
+        </button>
+      </div>
+      {a.problem && (
+        <div className="notice err">
+          <Icon.Alert size={16} />
+          <div>{a.problem}</div>
+        </div>
       )}
     </div>
   )
@@ -188,19 +270,24 @@ function InstagramCard() {
 
 function YouTubeCard() {
   const { snap, go } = useApp()
-  const { toast, confirm } = useFeedback()
-  const acc = snap!.accounts.youtube
-  const [clientId, setClientId] = useState(acc.clientId ?? '')
+  const { toast } = useFeedback()
+  const accounts = snap!.accounts.youtube
+  const savedClient = snap!.accounts.youtubeClientId
+  const used = snap!.accounts.youtubeQuotaUsedToday
+  const [editClient, setEditClient] = useState(false)
+  const [clientId, setClientId] = useState(savedClient ?? '')
   const [clientSecret, setClientSecret] = useState('')
   const [busy, setBusy] = useState(false)
-  const [reconnecting, setReconnecting] = useState(false)
 
-  async function connect() {
+  const hasClient = !!savedClient && !!snap!.accounts.youtubeHasSecret
+  const showForm = !hasClient || editClient
+
+  async function signIn(args: { clientId?: string; clientSecret?: string }) {
     setBusy(true)
     try {
-      const a = await api.youtubeConnect({ clientId, clientSecret })
+      const a = await api.youtubeConnect(args)
       setClientSecret('')
-      setReconnecting(false)
+      setEditClient(false)
       toast('ok', `Connected ${a.channelTitle}.`)
     } catch (e) {
       toast('err', (e as Error).message)
@@ -208,9 +295,6 @@ function YouTubeCard() {
       setBusy(false)
     }
   }
-
-  const showForm = !acc.connected || reconnecting
-  const uploadsLeft = Math.max(0, DAILY_UPLOADS - acc.quotaUsedToday)
 
   return (
     <div className="card account-card">
@@ -221,67 +305,67 @@ function YouTubeCard() {
           <h3>YouTube</h3>
           <div className="faint small">Shorts via the YouTube Data API</div>
         </div>
-        {acc.connected && !acc.problem && <span className="pill ok">Connected</span>}
-        {acc.problem && <span className="pill err">Needs attention</span>}
+        {accounts.length > 0 && (
+          <span className={cx('pill', accounts.some((a) => a.problem) ? 'err' : 'ok')}>
+            {accounts.some((a) => a.problem) ? 'Needs attention' : `${accounts.length} connected`}
+          </span>
+        )}
       </div>
 
-      {acc.connected && (
-        <div className="connected-box" style={{ marginBottom: 14 }}>
-          <Avatar src={acc.thumbnailUrl} name={acc.channelTitle} size={44} />
-          <div className="grow">
-            <div style={{ fontWeight: 650 }}>{acc.channelTitle}</div>
-            <div className="faint small">
-              {uploadsLeft} upload{uploadsLeft === 1 ? '' : 's'} left today
-            </div>
-          </div>
-          <button className="btn sm" onClick={() => setReconnecting((r) => !r)}>
-            {reconnecting ? 'Cancel' : 'Reconnect'}
-          </button>
-          <button
-            className="btn sm ghost danger"
-            onClick={async () => {
-              if (await confirm({ title: 'Disconnect YouTube?', body: 'Shorts that are not uploaded yet will fail until you connect again.', confirm: 'Disconnect', danger: true })) await api.youtubeDisconnect()
-            }}
-          >
-            Disconnect
-          </button>
-        </div>
-      )}
+      {accounts.map((a) => (
+        <YtRow key={a.id} a={a} busy={busy} onReconnect={() => signIn({})} />
+      ))}
 
-      {acc.problem && (
-        <div className="notice err" style={{ marginBottom: 14 }}>
-          <Icon.Alert size={16} />
-          <div>{acc.problem}</div>
-        </div>
-      )}
-
-      {acc.connected && !reconnecting && (
-        <>
+      {accounts.length > 0 && (
+        <div style={{ margin: '4px 0 14px' }}>
           <div className="row small" style={{ marginBottom: 6 }}>
-            <span className="muted grow">Uploads today (YouTube allows {DAILY_UPLOADS}, resets at midnight Pacific)</span>
+            <span className="muted grow">Uploads today, all channels (YouTube allows {DAILY_UPLOADS} per Cloud project, resets at midnight Pacific)</span>
             <span style={{ fontWeight: 650 }}>
-              {acc.quotaUsedToday} / {DAILY_UPLOADS}
+              {used} / {DAILY_UPLOADS}
             </span>
           </div>
-          <Progress value={acc.quotaUsedToday / DAILY_UPLOADS} />
-          <div className="notice" style={{ marginTop: 14 }}>
-            <Icon.Lock size={16} />
-            <div>
-              If YouTube keeps an upload <b>private</b> because your Google Cloud project hasn't been audited, Cadence flags it in the post's log.{' '}
-              <a href="#" onClick={(e) => (e.preventDefault(), go('guide', { guideAnchor: 'audit' }))}>
-                How to get approved
-              </a>
-            </div>
+          <Progress value={used / DAILY_UPLOADS} />
+        </div>
+      )}
+
+      {busy && (
+        <div className="notice" style={{ marginBottom: 14 }}>
+          <Spinner />
+          <div>Finish signing in in your browser. Pick the Google account, or the Brand Account, that owns the channel, then allow access.</div>
+        </div>
+      )}
+
+      {hasClient && !editClient && (
+        <>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn add-account grow" disabled={busy} onClick={() => signIn({})}>
+              <Icon.Plus size={15} /> {accounts.length ? 'Add another channel' : 'Sign in with Google'}
+            </button>
           </div>
+          <div className="saved-app" style={{ marginTop: 10 }}>
+            <span className="faint small ellipsis">
+              OAuth client <span className="mono">{savedClient!.slice(0, 18)}…</span>
+            </span>
+            {!accounts.length && (
+              <button className="btn ghost sm" onClick={() => setEditClient(true)}>
+                Change
+              </button>
+            )}
+          </div>
+          {accounts.length > 0 && (
+            <p className="faint small" style={{ marginBottom: 0 }}>
+              Signing in with another Google account? While your Google Cloud app is in Testing, add that account under Audience → Test users first.
+            </p>
+          )}
         </>
       )}
 
       {showForm && (
-        <>
-          <ol className="steps-mini" style={{ marginTop: acc.connected ? 14 : 0 }}>
-            <li>Create a Google Cloud project and enable the YouTube Data API v3.</li>
+        <div className={cx(accounts.length > 0 && 'add-form')}>
+          <ol className="steps-mini">
+            <li>Create a Google Cloud project and enable the YouTube Data API v3 and YouTube Analytics API.</li>
             <li>Set up the consent screen and create an OAuth client of type "Desktop app".</li>
-            <li>Paste the Client ID and secret, then sign in with Google.</li>
+            <li>Paste the Client ID and secret, then sign in with Google. Add more channels with the same client.</li>
           </ol>
           <div className="field">
             <label>OAuth Client ID</label>
@@ -291,22 +375,81 @@ function YouTubeCard() {
             <label>Client secret</label>
             <input className="input mono" type="password" placeholder="GOCSPX-…" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} />
           </div>
-          {busy && (
-            <div className="notice" style={{ marginBottom: 14 }}>
-              <Spinner />
-              <div>Finish signing in in your browser. Choose the Google account that owns your channel and allow access.</div>
-            </div>
-          )}
           <div className="row">
             <button className="btn ghost" onClick={() => go('guide', { guideAnchor: 'youtube' })}>
-              <Icon.Guide size={16} /> Step-by-step guide
+              <Icon.Guide size={16} /> Guide
             </button>
             <div className="grow" />
-            <button className="btn primary" disabled={busy || !clientId || !clientSecret} onClick={connect}>
+            {editClient && (
+              <button className="btn ghost" onClick={() => setEditClient(false)}>
+                Cancel
+              </button>
+            )}
+            <button className="btn primary" disabled={busy || !clientId || !clientSecret} onClick={() => signIn({ clientId, clientSecret })}>
               {busy ? <Spinner /> : <Icon.Link size={16} />} Sign in with Google
             </button>
           </div>
-        </>
+        </div>
+      )}
+
+      {accounts.length > 0 && (
+        <div className="notice" style={{ marginTop: 14 }}>
+          <Icon.Lock size={16} />
+          <div>
+            If YouTube keeps an upload <b>private</b> because your Google Cloud project hasn't been audited, Cadence flags it in the post's log.{' '}
+            <a href="#" onClick={(e) => (e.preventDefault(), go('guide', { guideAnchor: 'audit' }))}>
+              How to get approved
+            </a>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function YtRow({ a, busy, onReconnect }: { a: YouTubeAccount; busy: boolean; onReconnect: () => void }) {
+  const { snap } = useApp()
+  const { confirm } = useFeedback()
+  const pending = pendingFor(snap!.posts, 'youtube', a.id)
+  const views = snap!.insights.accounts[`youtube:${a.id}`]
+  return (
+    <div className="acct-row">
+      <div className="connected-box">
+        <Avatar src={a.thumbnailUrl} name={a.channelTitle} size={42} />
+        <div className="grow" style={{ minWidth: 0 }}>
+          <div className="ellipsis" style={{ fontWeight: 650 }}>
+            {a.channelTitle}
+          </div>
+          <div className="faint small ellipsis">
+            {views?.followers != null ? `${views.followers.toLocaleString()} subscribers` : 'Channel connected'}
+            {pending > 0 && ` · ${pending} queued`}
+          </div>
+        </div>
+        {a.problem && (
+          <button className="btn sm" disabled={busy} onClick={onReconnect} title="Sign in again and choose this channel">
+            Reconnect
+          </button>
+        )}
+        <button
+          className="btn sm ghost danger"
+          onClick={async () => {
+            const ok = await confirm({
+              title: `Remove ${a.channelTitle}?`,
+              body: pending ? `${pending} Short${pending === 1 ? '' : 's'} not uploaded yet will fail until you connect this channel again or pick another one.` : 'You can connect it again any time.',
+              confirm: 'Remove',
+              danger: true
+            })
+            if (ok) await api.youtubeDisconnect(a.id)
+          }}
+        >
+          Remove
+        </button>
+      </div>
+      {a.problem && (
+        <div className="notice err">
+          <Icon.Alert size={16} />
+          <div>{a.problem}</div>
+        </div>
       )}
     </div>
   )

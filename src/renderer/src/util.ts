@@ -1,3 +1,4 @@
+import type { AccountsState, Platform } from '../../shared/types'
 export function cx(...xs: (string | false | null | undefined)[]): string {
   return xs.filter(Boolean).join(' ')
 }
@@ -130,4 +131,13 @@ export function parseTags(s: string): string[] {
     .split(',')
     .map((t) => t.trim().replace(/^#/, ''))
     .filter(Boolean)
+}
+
+/** "@name" or the channel title for a post's account; '' when it can't be found. */
+export function accountLabel(accounts: AccountsState, platform: Platform, id: string | undefined): string {
+  if (platform === 'instagram') {
+    const a = accounts.instagram.find((x) => x.id === id)
+    return a ? `@${a.username}` : ''
+  }
+  return accounts.youtube.find((x) => x.id === id)?.channelTitle ?? ''
 }

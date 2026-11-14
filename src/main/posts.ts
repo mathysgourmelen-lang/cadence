@@ -17,6 +17,12 @@ function newTarget(): TargetBase {
 
 export function savePost(store: Store, input: PostDraftInput, now = Date.now()): Post {
   if (!input.instagram.enabled && !input.youtube.enabled) throw new PostError('Turn on Instagram, YouTube, or both.')
+  // No account picked (e.g. only one is connected): use the first one.
+  input = {
+    ...input,
+    instagram: { ...input.instagram, accountId: input.instagram.accountId || store.accounts.instagram[0]?.id },
+    youtube: { ...input.youtube, accountId: input.youtube.accountId || store.accounts.youtube[0]?.id }
+  }
   if (input.schedule && input.scheduledAt && Number.isNaN(Date.parse(input.scheduledAt))) throw new PostError('The date and time are not valid.')
   if (input.schedule && input.scheduledAt && Date.parse(input.scheduledAt) < now - 60_000) {
     throw new PostError('That time is in the past. Pick a future time or choose "Post now".')
@@ -26,12 +32,14 @@ export function savePost(store: Store, input: PostDraftInput, now = Date.now()):
     if (input.instagram.enabled) {
       const v = validateInstagram(input.video.media, input.instagram.caption)
       if (!v.canPost) throw new PostError(`Instagram: ${firstError(v.checks)}`)
-      if (!store.accounts.instagram.connected) throw new PostError('Connect Instagram in Accounts before scheduling a reel.')
+      if (!store.accounts.instagram.length) throw new PostError('Connect Instagram in Accounts before scheduling a reel.')
+      if (!store.igAccount(input.instagram.accountId)) throw new PostError('That Instagram account is no longer connected. Pick another account.')
     }
     if (input.youtube.enabled) {
       const v = validateYouTube(input.video.media, input.youtube.title, input.youtube.description, input.youtube.tags)
       if (!v.canPost) throw new PostError(`YouTube: ${firstError(v.checks)}`)
-      if (!store.accounts.youtube.connected) throw new PostError('Connect YouTube in Accounts before scheduling a Short.')
+      if (!store.accounts.youtube.length) throw new PostError('Connect YouTube in Accounts before scheduling a Short.')
+      if (!store.ytAccount(input.youtube.accountId)) throw new PostError('That YouTube channel is no longer connected. Pick another channel.')
     }
   }
 
@@ -66,7 +74,10 @@ export function savePost(store: Store, input: PostDraftInput, now = Date.now()):
   {
     const t = post.instagram
     const textChanged =
-      t.caption !== input.instagram.caption || t.shareToFeed !== input.instagram.shareToFeed || t.coverOffsetMs !== input.instagram.coverOffsetMs
+      t.caption !== input.instagram.caption ||
+      t.shareToFeed !== input.instagram.shareToFeed ||
+      t.coverOffsetMs !== input.instagram.coverOffsetMs ||
+      (t.accountId ?? undefined) !== (input.instagram.accountId ?? undefined)
     if (t.enabled && !isEditable(t.state)) {
       if (textChanged || timeChanged || !input.instagram.enabled) {
         throw new PostError(`The Instagram post is ${t.state === 'published' ? 'already published' : 'uploading right now'} and can't be changed.`)
@@ -98,6 +109,7 @@ export function savePost(store: Store, input: PostDraftInput, now = Date.now()):
           t.madeForKids !== input.youtube.madeForKids ||
           t.categoryId !== input.youtube.categoryId ||
           t.mode !== input.youtube.mode ||
+          (t.accountId ?? undefined) !== (input.youtube.accountId ?? undefined) ||
           (t.thumbnailPath ?? undefined) !== (input.youtube.thumbnailPath ?? undefined) ||
           !input.youtube.enabled ||
           timeChanged

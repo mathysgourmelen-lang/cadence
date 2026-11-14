@@ -2,11 +2,11 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from '
 import { Topbar } from '../App'
 import { api, useApp } from '../state'
 import { Icon, InstagramMark, YouTubeMark } from '../icons'
-import { Modal, Segmented, Spinner, useFeedback } from '../ui'
+import { Avatar, Modal, Segmented, Spinner, useFeedback } from '../ui'
 import { cx, relative } from '../util'
 import { compact } from './Views'
 import { TRAFFIC_LABELS } from '../../../shared/traffic'
-import type { ReelAnalytics, RetentionPoint, TimingSample, YtVideoAnalytics } from '../../../shared/types'
+import { accountKey, type ReelAnalytics, type RetentionPoint, type TimingSample, type YtVideoAnalytics } from '../../../shared/types'
 import { analyzeTiming, BLOCK_HOURS, BLOCKS, blockLabel, MIN_SAMPLES, suggestedTimes, type Bucket } from '../../../shared/bestTime'
 import { formatHHMM, timezoneName } from '../util'
 
@@ -47,8 +47,16 @@ export default function Analytics() {
   const { toast } = useFeedback()
   const a = snap!.analytics
   const { instagram: igAcc, youtube: ytAcc } = snap!.accounts
-  const [platform, setPlatform] = useState<Platform>(igAcc.connected || !ytAcc.connected ? 'instagram' : 'youtube')
+  const [platform, setPlatform] = useState<Platform>(igAcc.length || !ytAcc.length ? 'instagram' : 'youtube')
+  const [igSel, setIgSel] = useState<string | undefined>(igAcc[0]?.id)
+  const [ytSel, setYtSel] = useState<string | undefined>(ytAcc[0]?.id)
   const asked = useRef(false)
+
+  // Keep the selection valid when accounts are added or removed.
+  const igId = igAcc.some((x) => x.id === igSel) ? igSel : igAcc[0]?.id
+  const ytId = ytAcc.some((x) => x.id === ytSel) ? ytSel : ytAcc[0]?.id
+  const ig = igId ? a.instagram[igId] : undefined
+  const yt = ytId ? a.youtube[ytId] : undefined
 
   const refresh = async (manual: boolean) => {
     try {
@@ -62,21 +70,22 @@ export default function Analytics() {
   useEffect(() => {
     if (asked.current) return
     asked.current = true
-    const last = Math.max(Date.parse(a.instagram?.fetchedAt ?? '') || 0, Date.parse(a.youtube?.fetchedAt ?? '') || 0)
-    if ((igAcc.connected || ytAcc.connected) && Date.now() - last > 30 * 60_000) void refresh(false)
+    const all = [...Object.values(a.instagram), ...Object.values(a.youtube)]
+    const last = Math.max(0, ...all.map((x) => Date.parse(x?.fetchedAt ?? '') || 0))
+    if ((igAcc.length || ytAcc.length) && Date.now() - last > 30 * 60_000) void refresh(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Views-tab data covers far more posts (up to 1,000 reels / 200 Shorts); fall back to the Analytics list.
-  const timingFor = (p: Platform): TimingSample[] => {
-    const fromInsights = snap!.insights[p]?.timing
+  const timingFor = (p: Platform, id: string): TimingSample[] => {
+    const fromInsights = snap!.insights.accounts[accountKey(p, id)]?.timing
     if (fromInsights?.length) return fromInsights
-    const rows: { publishedAt?: string; views: number | null }[] = (p === 'instagram' ? a.instagram?.reels : a.youtube?.videos) ?? []
+    const rows: { publishedAt?: string; views: number | null }[] = (p === 'instagram' ? a.instagram[id]?.reels : a.youtube[id]?.videos) ?? []
     return rows.filter((r) => r.publishedAt && r.views != null).map((r) => [r.publishedAt!, r.views!] as TimingSample)
   }
 
-  const fetched = Date.parse((platform === 'instagram' ? a.instagram?.fetchedAt : a.youtube?.fetchedAt) ?? '') || 0
-  const noAccounts = !igAcc.connected && !ytAcc.connected
+  const fetched = Date.parse((platform === 'instagram' ? ig?.fetchedAt : yt?.fetchedAt) ?? '') || 0
+  const noAccounts = !igAcc.length && !ytAcc.length
 
   return (
     <>
@@ -110,18 +119,58 @@ export default function Analytics() {
             </div>
           </div>
         ) : platform === 'instagram' ? (
-          igAcc.connected ? (
-            <InstagramPanel timing={timingFor('instagram')} reels={a.instagram?.reels} unavailable={a.instagram?.unavailable ?? []} error={a.instagramError} loading={a.refreshing} onGuide={() => go('guide', { guideAnchor: 'instagram' })} />
+          igId ? (
+            <>
+              {igAcc.length > 1 && (
+                <AccountSwitch value={igId} onChange={setIgSel} options={igAcc.map((x) => ({ id: x.id, label: `@${x.username}`, avatar: x.profilePictureUrl }))} />
+              )}
+              <InstagramPanel
+                key={igId}
+                timing={timingFor('instagram', igId)}
+                reels={ig?.reels}
+                unavailable={ig?.unavailable ?? []}
+                error={a.errors[accountKey('instagram', igId)]}
+                loading={a.refreshing}
+                onGuide={() => go('guide', { guideAnchor: 'instagram' })}
+              />
+            </>
           ) : (
             <ConnectCard name="Instagram" onConnect={() => go('accounts')} />
           )
-        ) : ytAcc.connected ? (
-          <YouTubePanel timing={timingFor('youtube')} videos={a.youtube?.videos} traffic={a.youtube?.traffic ?? []} error={a.youtubeError} loading={a.refreshing} onGuide={() => go('guide', { guideAnchor: 'youtube' })} />
+        ) : ytId ? (
+          <>
+            {ytAcc.length > 1 && (
+              <AccountSwitch value={ytId} onChange={setYtSel} options={ytAcc.map((x) => ({ id: x.id, label: x.channelTitle, avatar: x.thumbnailUrl }))} />
+            )}
+            <YouTubePanel
+              key={ytId}
+              channelId={ytId}
+              timing={timingFor('youtube', ytId)}
+              videos={yt?.videos}
+              traffic={yt?.traffic ?? []}
+              error={a.errors[accountKey('youtube', ytId)]}
+              loading={a.refreshing}
+              onGuide={() => go('guide', { guideAnchor: 'youtube' })}
+            />
+          </>
         ) : (
           <ConnectCard name="YouTube" onConnect={() => go('accounts')} />
         )}
       </div>
     </>
+  )
+}
+
+function AccountSwitch({ value, onChange, options }: { value: string; onChange: (id: string) => void; options: { id: string; label: string; avatar?: string }[] }) {
+  return (
+    <div className="acct-switch" role="tablist" aria-label="Account">
+      {options.map((o) => (
+        <button key={o.id} role="tab" aria-selected={o.id === value} className={cx('acct-chip', o.id === value && 'on')} onClick={() => onChange(o.id)}>
+          <Avatar src={o.avatar} name={o.label.replace(/^@/, '')} size={20} />
+          <span className="ellipsis">{o.label}</span>
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -479,6 +528,7 @@ function ReelDetail({ r, onClose }: { r: ReelAnalytics; onClose: () => void }) {
 // ---------------- YouTube ----------------
 
 function YouTubePanel({
+  channelId,
   timing,
   videos,
   traffic,
@@ -486,6 +536,7 @@ function YouTubePanel({
   loading,
   onGuide
 }: {
+  channelId: string
   timing: TimingSample[]
   videos?: YtVideoAnalytics[]
   traffic: { source: string; views: number }[]
@@ -588,25 +639,25 @@ function YouTubePanel({
       </p>
 
       <Modal open={!!open} onClose={() => setOpen(null)} width={720}>
-        {open && <VideoDetail v={open} onClose={() => setOpen(null)} />}
+        {open && <VideoDetail v={open} channelId={channelId} onClose={() => setOpen(null)} />}
       </Modal>
     </>
   )
 }
 
-function VideoDetail({ v, onClose }: { v: YtVideoAnalytics; onClose: () => void }) {
+function VideoDetail({ v, channelId, onClose }: { v: YtVideoAnalytics; channelId: string; onClose: () => void }) {
   const [points, setPoints] = useState<RetentionPoint[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
   useEffect(() => {
     let alive = true
     api
-      .retention(v.id)
+      .retention(v.id, channelId)
       .then((p) => alive && setPoints(p))
       .catch((e) => alive && setErr((e as Error).message))
     return () => {
       alive = false
     }
-  }, [v.id])
+  }, [v.id, channelId])
   const rel = points ? avg(points.map((p) => p.relative)) : null
   const facts: [string, string][] = [
     ['Views', compact(v.views)],

@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Store, type Cipher } from '../src/main/store'
+import { migrateV1, Store, type Cipher } from '../src/main/store'
 import { Scheduler } from '../src/main/scheduler'
 import { ApiError } from '../src/main/http'
 import { applyAction, PostError, reschedule, savePost } from '../src/main/posts'
@@ -50,8 +50,10 @@ class FakeIG {
     if (this.containerStatusOverride) return { statusCode: this.containerStatusOverride }
     return { statusCode: this.statuses.shift() ?? 'FINISHED' }
   }
-  async publish() {
+  publishedAs: string[] = []
+  async publish(creds: { igUserId: string; accessToken: string }) {
     this.calls.push('publish')
+    this.publishedAs.push(`${creds.igUserId}/${creds.accessToken}`)
     if (this.failPublish) throw this.failPublish
     return 'M1'
   }
@@ -68,8 +70,10 @@ class FakeYT {
   lastMeta: any
   videoPrivacy = 'public'
   failUploadOnce: ApiError | null = null
-  async startUpload(_t: unknown, meta: unknown) {
+  uploadedAs: string[] = []
+  async startUpload(t: { refreshToken: string }, meta: unknown) {
     this.calls.push('start')
+    this.uploadedAs.push(t.refreshToken)
     this.lastMeta = meta
     return 'https://session/1'
   }
@@ -106,10 +110,12 @@ function setup(settings: Partial<Store['settings']> = {}) {
   store = new Store(dir, cipher)
   store.setSettings({ instagramLeadMinutes: 10, ...settings })
   store.setAccounts({
-    instagram: { connected: true, igUserId: 'IG', username: 'max' },
-    youtube: { connected: true, clientId: 'cid', channelTitle: 'Max', quotaUsedToday: 0 }
+    instagram: [{ id: 'IG', username: 'max' }],
+    youtube: [{ id: 'UC1', channelTitle: 'Max' }],
+    youtubeClientId: 'cid',
+    youtubeHasSecret: true
   })
-  store.setSecrets({ instagram: { accessToken: 'tok' }, youtube: { clientSecret: 's', refreshToken: 'r' } })
+  store.setSecrets({ instagram: { accounts: { IG: { accessToken: 'tok' } } }, youtube: { clientSecret: 's', accounts: { UC1: { refreshToken: 'r' } } } })
   const file = join(dir, 'library', 'v.mp4')
   writeFileSync(file, Buffer.alloc(1000))
   video = { fileName: 'v.mp4', originalPath: '/x/v.mp4', libraryPath: file, sizeBytes: 1000, media }
@@ -383,12 +389,12 @@ describe('Saving and editing posts', () => {
     expect(() => savePost(store, input({ instagram: { enabled: false, caption: '', shareToFeed: true, coverOffsetMs: null } }), clock)).toThrow(PostError)
     expect(() => savePost(store, input({ scheduledAt: new Date(clock - 3600_000).toISOString() }), clock)).toThrow(/past/)
     expect(() => savePost(store, input({ instagram: { enabled: true, caption: 'x'.repeat(2300), shareToFeed: true, coverOffsetMs: null } }), clock)).toThrow(/Caption/)
-    store.setAccounts({ instagram: { connected: false } })
+    store.setAccounts({ instagram: [] })
     expect(() => savePost(store, input(), clock)).toThrow(/Connect Instagram/)
   })
 
   it('saves drafts without account checks', () => {
-    store.setAccounts({ instagram: { connected: false } })
+    store.setAccounts({ instagram: [] })
     const p = savePost(store, input({ schedule: false }), clock)
     expect(p.instagram.state).toBe('draft')
   })
@@ -428,6 +434,86 @@ describe('Saving and editing posts', () => {
     await store.flush()
     const again = new Store(store.dataDir, cipher)
     expect(again.getPost(p.id)?.instagram.caption).toBe('cap')
-    expect(again.getSecrets().instagram?.accessToken).toBe('tok')
+    expect(again.getSecrets().instagram?.accounts.IG?.accessToken).toBe('tok')
+  })
+})
+
+describe('Multiple accounts', () => {
+  function addSecondAccounts() {
+    store.setAccounts({
+      ...store.accounts,
+      instagram: [...store.accounts.instagram, { id: 'IG2', username: 'cooks' }],
+      youtube: [...store.accounts.youtube, { id: 'UC2', channelTitle: 'Cooks' }]
+    })
+    store.setIgSecret('IG2', { accessToken: 'tok2' })
+    store.setYtSecret('UC2', { refreshToken: 'r2' })
+  }
+  const ytOn = { enabled: true, title: 'T', description: '', tags: [], privacy: 'public' as const, madeForKids: false, categoryId: '22', mode: 'atTime' as const }
+
+  it('posts each reel and Short with its own account', async () => {
+    addSecondAccounts()
+    savePost(store, input({ scheduledAt: null, instagram: { enabled: true, accountId: 'IG2', caption: 'a', shareToFeed: true, coverOffsetMs: null }, youtube: { ...ytOn, accountId: 'UC2' } }), clock)
+    savePost(store, input({ scheduledAt: null, instagram: { enabled: true, accountId: 'IG', caption: 'b', shareToFeed: true, coverOffsetMs: null }, youtube: { ...ytOn, accountId: 'UC1' } }), clock)
+    await step()
+    await step()
+    expect(ig.publishedAs.sort()).toEqual(['IG/tok', 'IG2/tok2'])
+    expect(yt.uploadedAs.sort()).toEqual(['r', 'r2'])
+  })
+
+  it('defaults to the first account and refuses one that was removed', () => {
+    addSecondAccounts()
+    expect(savePost(store, input(), clock).instagram.accountId).toBe('IG')
+    expect(() => savePost(store, input({ instagram: { enabled: true, accountId: 'GONE', caption: 'x', shareToFeed: true, coverOffsetMs: null } }), clock)).toThrow(/no longer connected/)
+  })
+
+  it('fails only the posts of an account whose sign-in is gone', async () => {
+    addSecondAccounts()
+    const a = savePost(store, input({ scheduledAt: null, instagram: { enabled: true, accountId: 'IG2', caption: 'a', shareToFeed: true, coverOffsetMs: null } }), clock)
+    const b = savePost(store, input({ scheduledAt: null }), clock)
+    store.setIgSecret('IG2', undefined)
+    await step()
+    await step()
+    expect(store.getPost(a.id)!.instagram.state).toBe('failed')
+    expect(store.getPost(b.id)!.instagram.state).toBe('published')
+  })
+})
+
+describe('Upgrading from one account per platform', () => {
+  it('moves the old account, its sign-in, posts and view history over', () => {
+    const raw = {
+      accounts: {
+        instagram: { connected: true, igUserId: '1784', username: 'max', appId: 'app' },
+        youtube: { connected: true, channelId: 'UCx', channelTitle: 'Max', clientId: 'cid', hasSecret: true, quotaUsedToday: 0 }
+      },
+      posts: [{ id: 'p1', instagram: { state: 'scheduled' }, youtube: { state: 'scheduled' } }],
+      insights: { history: [{ day: '2026-11-01', instagram: 10, youtube: 20 }] }
+    }
+    const secrets = { instagram: { appSecret: 'as', accessToken: 't', userToken: 'u' }, youtube: { clientSecret: 'cs', refreshToken: 'r' } }
+    const out = migrateV1(raw, secrets)
+    expect(out.state.accounts!.instagram).toMatchObject([{ id: '1784', username: 'max' }])
+    expect(out.state.accounts!.youtube).toMatchObject([{ id: 'UCx', channelTitle: 'Max' }])
+    expect(out.state.accounts!.instagramAppId).toBe('app')
+    expect(out.state.accounts!.youtubeClientId).toBe('cid')
+    expect(out.state.posts![0].instagram.accountId).toBe('1784')
+    expect(out.state.posts![0].youtube.accountId).toBe('UCx')
+    expect(out.state.insights!.history).toEqual([{ day: '2026-11-01', values: { 'instagram:1784': 10, 'youtube:UCx': 20 } }])
+    expect(out.secrets).toEqual({
+      instagram: { appSecret: 'as', accounts: { '1784': { accessToken: 't', userToken: 'u' } } },
+      youtube: { clientSecret: 'cs', accounts: { UCx: { refreshToken: 'r', accessToken: undefined, accessTokenExpiresAt: undefined } } }
+    })
+  })
+
+  it('upgrades a saved data folder on first launch and keeps a backup', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cadence-v1-'))
+    writeFileSync(
+      join(dir, 'state.json'),
+      JSON.stringify({ posts: [], settings: {}, accounts: { instagram: { connected: true, igUserId: '9', username: 'old' }, youtube: { connected: false, quotaUsedToday: 0 } } })
+    )
+    const s = new Store(dir, cipher)
+    expect(s.accounts.instagram).toMatchObject([{ id: '9', username: 'old' }])
+    expect(s.accounts.youtube).toEqual([])
+    await s.flush()
+    expect(existsSync(join(dir, 'state.json.v1-backup'))).toBe(true)
+    expect(new Store(dir, cipher).accounts.instagram[0].id).toBe('9')
   })
 })

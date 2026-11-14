@@ -134,13 +134,13 @@ describe('recordHistory', () => {
   it('keeps one point per day and merges platforms', () => {
     const d1 = new Date(2026, 10, 10, 9)
     const d2 = new Date(2026, 10, 11, 9)
-    let h = recordHistory([], { instagram: 10 }, d1)
-    h = recordHistory(h, { youtube: 50 }, d1)
-    h = recordHistory(h, { instagram: 12 }, d1)
-    h = recordHistory(h, { instagram: 20, youtube: 70 }, d2)
+    let h = recordHistory([], { 'instagram:A': 10 }, d1)
+    h = recordHistory(h, { 'youtube:C': 50 }, d1)
+    h = recordHistory(h, { 'instagram:A': 12, 'instagram:B': 3 }, d1)
+    h = recordHistory(h, { 'instagram:A': 20, 'youtube:C': 70 }, d2)
     expect(h).toEqual([
-      { day: '2026-11-10', instagram: 12, youtube: 50 },
-      { day: '2026-11-11', instagram: 20, youtube: 70 }
+      { day: '2026-11-10', values: { 'instagram:A': 12, 'instagram:B': 3, 'youtube:C': 50 } },
+      { day: '2026-11-11', values: { 'instagram:A': 20, 'youtube:C': 70 } }
     ])
   })
 })

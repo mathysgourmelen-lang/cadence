@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { Topbar } from '../App'
 import { api, useApp } from '../state'
 import { Icon, InstagramMark, YouTubeMark } from '../icons'
-import { Modal, Segmented, Spinner, Switch, useFeedback } from '../ui'
+import { Avatar, Modal, Segmented, Spinner, Switch, useFeedback } from '../ui'
 import { DateTimePicker, dayKey } from './DateTimePicker'
 import PhonePreview, { type PreviewMode } from './PhonePreview'
 import { addDays, atTime, captureFrame, cx, firstLine, formatHHMM, parseTags, relative, startOfDay, timezoneName, uid } from '../util'
@@ -28,9 +28,10 @@ interface Draft {
   key: string
   postId?: string
   video: VideoRef
-  ig: { enabled: boolean; caption: string; shareToFeed: boolean; coverOffsetMs: number | null }
+  ig: { enabled: boolean; accountIds: string[]; caption: string; shareToFeed: boolean; coverOffsetMs: number | null }
   yt: {
     enabled: boolean
+    accountIds: string[]
     title: string
     description: string
     tags: string
@@ -51,6 +52,28 @@ interface Draft {
 // Drafts survive switching tabs (but not quitting the app).
 let savedDrafts: Draft[] = []
 let savedActive: string | null = null
+// New videos default to the accounts picked most recently.
+let lastIg: string[] = []
+let lastYt: string[] = []
+
+function defaultIds(last: string[], all: { id: string }[]): string[] {
+  const ok = last.filter((id) => all.some((a) => a.id === id))
+  return ok.length ? ok : all.slice(0, 1).map((a) => a.id)
+}
+
+/** One post per account: the i-th Instagram account is paired with the i-th channel. */
+function toInputs(d: Draft, schedule: boolean): PostDraftInput[] {
+  const ig = d.ig.enabled ? d.ig.accountIds : []
+  const yt = d.yt.enabled ? d.yt.accountIds : []
+  const n = Math.max(1, ig.length, yt.length)
+  const base = toInput(d, schedule)
+  return Array.from({ length: n }, (_, i) => ({
+    ...base,
+    id: i === 0 ? d.postId : undefined,
+    instagram: { ...base.instagram, enabled: d.ig.enabled && (i < ig.length || (!ig.length && i === 0)), accountId: ig[i] },
+    youtube: { ...base.youtube, enabled: d.yt.enabled && (i < yt.length || (!yt.length && i === 0)), accountId: yt[i] }
+  }))
+}
 
 function nextSlot(settings: Settings, after: Date): Date {
   const times = [...settings.defaultTimes].sort()
@@ -64,13 +87,14 @@ function nextSlot(settings: Settings, after: Date): Date {
   return new Date(after.getTime() + 3600_000)
 }
 
-function newDraft(video: VideoRef, settings: Settings, after: Date, ig: boolean, yt: boolean): Draft {
+function newDraft(video: VideoRef, settings: Settings, after: Date, ig: boolean, yt: boolean, igIds: string[], ytIds: string[]): Draft {
   return {
     key: uid(),
     video,
-    ig: { enabled: ig, caption: '', shareToFeed: settings.instagramShareToFeed, coverOffsetMs: null },
+    ig: { enabled: ig, accountIds: igIds, caption: '', shareToFeed: settings.instagramShareToFeed, coverOffsetMs: null },
     yt: {
       enabled: yt,
+      accountIds: ytIds,
       title: '',
       description: '',
       tags: '',
@@ -91,9 +115,16 @@ function draftFromPost(p: Post): Draft {
     key: uid(),
     postId: p.id,
     video: p.video,
-    ig: { enabled: p.instagram.enabled, caption: p.instagram.caption, shareToFeed: p.instagram.shareToFeed, coverOffsetMs: p.instagram.coverOffsetMs },
+    ig: {
+      enabled: p.instagram.enabled,
+      accountIds: p.instagram.accountId ? [p.instagram.accountId] : [],
+      caption: p.instagram.caption,
+      shareToFeed: p.instagram.shareToFeed,
+      coverOffsetMs: p.instagram.coverOffsetMs
+    },
     yt: {
       enabled: p.youtube.enabled,
+      accountIds: p.youtube.accountId ? [p.youtube.accountId] : [],
       title: p.youtube.title,
       description: p.youtube.description,
       tags: p.youtube.tags.join(', '),
@@ -126,9 +157,10 @@ function toInput(d: Draft, schedule: boolean): PostDraftInput {
     scheduledAt: d.when === 'now' ? null : d.date,
     video: d.video,
     schedule,
-    instagram: { ...d.ig },
+    instagram: { enabled: d.ig.enabled, accountId: d.ig.accountIds[0], caption: d.ig.caption, shareToFeed: d.ig.shareToFeed, coverOffsetMs: d.ig.coverOffsetMs },
     youtube: {
       enabled: d.yt.enabled,
+      accountId: d.yt.accountIds[0],
       title: effectiveTitle(d),
       description: effectiveDescription(d),
       tags: parseTags(d.yt.tags),
@@ -158,6 +190,8 @@ function draftProblem(d: Draft, accounts: { ig: boolean; yt: boolean }): string 
   if (ytErr) return `YouTube: ${ytErr.label} — ${ytErr.detail}`
   if (d.ig.enabled && !accounts.ig) return 'Connect Instagram in Accounts first.'
   if (d.yt.enabled && !accounts.yt) return 'Connect YouTube in Accounts first.'
+  if (d.ig.enabled && !d.ig.accountIds.length) return 'Pick an Instagram account to post to.'
+  if (d.yt.enabled && !d.yt.accountIds.length) return 'Pick a YouTube channel to post to.'
   if (d.when === 'later' && Date.parse(d.date) < Date.now() + 30_000) return 'The scheduled time is in the past.'
   return null
 }
@@ -185,7 +219,9 @@ export default function Compose() {
   const dragDepth = useRef(0)
 
   const settings = snap!.settings
-  const accounts = { ig: snap!.accounts.instagram.connected, yt: snap!.accounts.youtube.connected }
+  const igAccounts = snap!.accounts.instagram
+  const ytAccounts = snap!.accounts.youtube
+  const accounts = { ig: igAccounts.length > 0, yt: ytAccounts.length > 0 }
 
   useEffect(() => {
     savedDrafts = drafts
@@ -241,7 +277,7 @@ export default function Compose() {
     }
     const created: Draft[] = []
     for (const v of ok) {
-      const d = newDraft(v, settings, after, accounts.ig || !accounts.yt, accounts.yt || !accounts.ig)
+      const d = newDraft(v, settings, after, accounts.ig || !accounts.yt, accounts.yt || !accounts.ig, defaultIds(lastIg, igAccounts), defaultIds(lastYt, ytAccounts))
       after = new Date(d.date)
       created.push(d)
     }
@@ -337,11 +373,11 @@ export default function Compose() {
     }
     setSaving(true)
     try {
-      const inputs = list.map((d) => toInput(d, schedule))
+      const inputs = list.flatMap((d) => toInputs(d, schedule))
       await (inputs.length === 1 ? api.savePost(inputs[0]) : api.savePosts(inputs))
       setDrafts((ds) => ds.filter((d) => !list.some((x) => x.key === d.key)))
       setActive(null)
-      const n = list.length
+      const n = inputs.length
       toast(
         'ok',
         schedule ? (list.every((d) => d.when === 'now') ? `Posting ${n > 1 ? `${n} videos` : 'now'}…` : `Scheduled ${n > 1 ? `${n} posts` : 'your post'}.`) : `Saved ${n > 1 ? `${n} drafts` : 'draft'}.`,
@@ -456,7 +492,7 @@ export default function Compose() {
                 <InstagramMark size={30} />
                 <div className="grow">
                   <div className="pc-title">Instagram Reel</div>
-                  <div className="pc-sub">{accounts.ig ? `@${snap!.accounts.instagram.username}` : 'Not connected'}</div>
+                  <div className="pc-sub ellipsis">{accounts.ig ? accountNames(d.ig.accountIds.map((id) => igAccounts.find((a) => a.id === id)?.username).filter(Boolean).map((u) => `@${u}`)) : 'Not connected'}</div>
                 </div>
                 <Switch on={d.ig.enabled} onChange={() => undefined} disabled={d.igLocked} />
               </button>
@@ -464,11 +500,48 @@ export default function Compose() {
                 <YouTubeMark size={30} />
                 <div className="grow">
                   <div className="pc-title">YouTube Short</div>
-                  <div className="pc-sub">{accounts.yt ? snap!.accounts.youtube.channelTitle : 'Not connected'}</div>
+                  <div className="pc-sub ellipsis">{accounts.yt ? accountNames(d.yt.accountIds.map((id) => ytAccounts.find((a) => a.id === id)?.channelTitle).filter(Boolean) as string[]) : 'Not connected'}</div>
                 </div>
                 <Switch on={d.yt.enabled} onChange={() => undefined} disabled={d.ytLocked} />
               </button>
             </div>
+
+            {((d.ig.enabled && igAccounts.length > 1) || (d.yt.enabled && ytAccounts.length > 1)) && (
+              <div className="card editor-section post-to">
+                <div className="section-title">
+                  <Icon.Users size={18} /> Post to
+                  {!d.postId && (
+                    <span className="hint">{toInputs(d, false).length > 1 ? `Creates ${toInputs(d, false).length} posts, one per account` : 'Tick several to post to each'}</span>
+                  )}
+                </div>
+                {d.ig.enabled && igAccounts.length > 1 && (
+                  <AccountPicker
+                    mark={<InstagramMark size={16} />}
+                    options={igAccounts.map((a) => ({ id: a.id, name: `@${a.username}`, pic: a.profilePictureUrl }))}
+                    value={d.ig.accountIds}
+                    single={!!d.postId}
+                    disabled={d.igLocked}
+                    onChange={(ids) => {
+                      lastIg = ids
+                      set((x) => ({ ...x, ig: { ...x.ig, accountIds: ids } }))
+                    }}
+                  />
+                )}
+                {d.yt.enabled && ytAccounts.length > 1 && (
+                  <AccountPicker
+                    mark={<YouTubeMark size={16} />}
+                    options={ytAccounts.map((a) => ({ id: a.id, name: a.channelTitle, pic: a.thumbnailUrl }))}
+                    value={d.yt.accountIds}
+                    single={!!d.postId}
+                    disabled={d.ytLocked}
+                    onChange={(ids) => {
+                      lastYt = ids
+                      set((x) => ({ ...x, yt: { ...x.yt, accountIds: ids } }))
+                    }}
+                  />
+                )}
+              </div>
+            )}
 
             {d.ig.enabled && (
               <div className="card editor-section">
@@ -748,8 +821,8 @@ export default function Compose() {
               poster={poster}
               mode={mode}
               onMode={setPreviewMode}
-              username={snap!.accounts.instagram.username || 'yourname'}
-              channel={snap!.accounts.youtube.channelTitle || 'Your Channel'}
+              username={igAccounts.find((a) => a.id === d.ig.accountIds[0])?.username || igAccounts[0]?.username || 'yourname'}
+              channel={ytAccounts.find((a) => a.id === d.yt.accountIds[0])?.channelTitle || ytAccounts[0]?.channelTitle || 'Your Channel'}
               caption={d.ig.caption}
               title={title}
               seekTo={coverSeek}
@@ -988,6 +1061,51 @@ function YouTubeThumbnailField({ path, disabled, onChange }: { path?: string; di
             PNG or JPEG, or drop one here. Big images are shrunk to YouTube's 2 MB limit. Custom thumbnails need a verified channel (youtube.com/verify).
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function accountNames(names: string[]): string {
+  if (!names.length) return 'Pick an account'
+  return names.length <= 2 ? names.join(', ') : `${names[0]} +${names.length - 1} more`
+}
+
+function AccountPicker({
+  mark,
+  options,
+  value,
+  single,
+  disabled,
+  onChange
+}: {
+  mark: ReactNode
+  options: { id: string; name: string; pic?: string }[]
+  value: string[]
+  single: boolean
+  disabled?: boolean
+  onChange: (ids: string[]) => void
+}) {
+  return (
+    <div className="acct-picker">
+      <span className="acct-picker-mark">{mark}</span>
+      <div className="acct-chips">
+        {options.map((o) => {
+          const on = value.includes(o.id)
+          return (
+            <button
+              key={o.id}
+              type="button"
+              className={cx('acct-chip', on && 'on')}
+              disabled={disabled}
+              onClick={() => onChange(single ? [o.id] : on ? value.filter((v) => v !== o.id) : options.filter((x) => x.id === o.id || value.includes(x.id)).map((x) => x.id))}
+            >
+              <Avatar src={o.pic} name={o.name.replace(/^@/, '')} size={20} />
+              <span className="ellipsis">{o.name}</span>
+              {on && <Icon.Check size={13} />}
+            </button>
+          )
+        })}
       </div>
     </div>
   )

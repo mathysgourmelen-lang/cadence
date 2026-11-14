@@ -202,20 +202,24 @@ export class Scheduler {
     }
   }
 
-  private igCreds(): InstagramCredentials {
-    const acc = this.store.accounts.instagram
-    const sec = this.store.getSecrets().instagram
-    if (!acc.connected || !acc.igUserId || !sec?.accessToken) {
-      throw new ApiError('Instagram is not connected. Connect it in Accounts, then retry.', { retriable: false, authError: true })
+  private igCreds(postId: string): InstagramCredentials {
+    const id = this.store.getPost(postId)?.instagram.accountId
+    const acc = this.store.igAccount(id)
+    const sec = this.store.igSecret(id)
+    if (!acc || !sec?.accessToken) {
+      throw new ApiError('The Instagram account for this post is not connected. Connect it in Accounts (or pick another account in the post), then retry.', {
+        retriable: false,
+        authError: true
+      })
     }
-    return { igUserId: acc.igUserId, accessToken: sec.accessToken, userToken: sec.userToken }
+    return { igUserId: acc.id, accessToken: sec.accessToken, userToken: sec.userToken }
   }
 
   private async igPrepare(postId: string): Promise<void> {
     const post = this.store.getPost(postId)
     if (!post) return
     try {
-      const creds = this.igCreds()
+      const creds = this.igCreds(postId)
       const file = post.video.libraryPath
       if (!existsSync(file)) throw new ApiError(`The video file is missing: ${post.video.fileName}`, { retriable: false })
       const v = validateInstagram(post.video.media, post.instagram.caption)
@@ -263,7 +267,7 @@ export class Scheduler {
 
   private async igWaitProcessing(postId: string): Promise<void> {
     try {
-      const creds = this.igCreds()
+      const creds = this.igCreds(postId)
       const start = this.now()
       for (;;) {
         const post = this.store.getPost(postId)
@@ -319,7 +323,7 @@ export class Scheduler {
     const post = this.store.getPost(postId)
     if (!post || !post.instagram.containerId) return
     try {
-      const creds = this.igCreds()
+      const creds = this.igCreds(postId)
       // Save "publishing" first so a crash during the call is detected on restart.
       this.setIg(postId, (t) => {
         t.state = 'publishing'
@@ -350,7 +354,7 @@ export class Scheduler {
     const post = this.store.getPost(postId)
     if (!post) return
     try {
-      const creds = this.igCreds()
+      const creds = this.igCreds(postId)
       const id = post.instagram.containerId
       if (!id) {
         this.setIg(postId, (t) => (t.state = 'scheduled'))
@@ -421,26 +425,16 @@ export class Scheduler {
     }
   }
 
-  private ytTokens(): YouTubeTokens {
-    const acc = this.store.accounts.youtube
-    const sec = this.store.getSecrets().youtube
-    if (!acc.connected || !acc.clientId || !sec?.clientSecret || !sec.refreshToken) {
-      throw new ApiError('YouTube is not connected. Connect it in Accounts, then retry.', { retriable: false, authError: true })
+  private ytTokens(postId: string): YouTubeTokens {
+    const id = this.store.getPost(postId)?.youtube.accountId
+    const tokens = ytTokensFor(this.store, id)
+    if (!tokens) {
+      throw new ApiError('The YouTube channel for this post is not connected. Connect it in Accounts (or pick another channel in the post), then retry.', {
+        retriable: false,
+        authError: true
+      })
     }
-    return {
-      clientId: acc.clientId,
-      clientSecret: sec.clientSecret,
-      refreshToken: sec.refreshToken,
-      accessToken: sec.accessToken,
-      accessTokenExpiresAt: sec.accessTokenExpiresAt
-    }
-  }
-
-  private saveYtTokens(tokens: YouTubeTokens): void {
-    const sec = this.store.getSecrets().youtube
-    if (sec && (sec.accessToken !== tokens.accessToken || sec.accessTokenExpiresAt !== tokens.accessTokenExpiresAt)) {
-      this.store.setSecrets({ youtube: { ...sec, accessToken: tokens.accessToken, accessTokenExpiresAt: tokens.accessTokenExpiresAt } })
-    }
+    return tokens
   }
 
   private async ytUpload(postId: string): Promise<void> {
@@ -448,7 +442,7 @@ export class Scheduler {
     if (!post) return
     let tokens: YouTubeTokens | undefined
     try {
-      tokens = this.ytTokens()
+      tokens = this.ytTokens(postId)
       const t = post.youtube
       const file = post.video.libraryPath
       if (!existsSync(file)) throw new ApiError(`The video file is missing: ${post.video.fileName}`, { retriable: false })
@@ -534,7 +528,8 @@ export class Scheduler {
       const p = this.store.getPost(postId)
       this.fail(postId, 'youtube', err, p?.youtube.uploadUrl ? 'uploading' : 'scheduled')
     } finally {
-      if (tokens) this.saveYtTokens(tokens)
+      const channel = this.store.getPost(postId)?.youtube.accountId
+      if (tokens && channel) saveYtTokens(this.store, channel, tokens)
     }
   }
 
@@ -624,6 +619,12 @@ export class Scheduler {
         gaveUp = true
       }
     })
+    // A rejected sign-in affects every post on that account: flag it in Accounts.
+    if (e.opts.authError) {
+      const id = platform === 'instagram' ? post.instagram.accountId : post.youtube.accountId
+      if (id && platform === 'instagram' && this.store.igAccount(id)) this.store.patchIgAccount(id, { problem: e.message })
+      if (id && platform === 'youtube' && this.store.ytAccount(id)) this.store.patchYtAccount(id, { problem: e.message })
+    }
     if (gaveUp) {
       this.deps.notify?.(
         platform === 'instagram' ? 'Instagram post failed' : 'YouTube upload failed',
@@ -648,4 +649,21 @@ function markPublished(t: TargetBase, at: number): void {
   t.error = undefined
   t.nextAttemptAt = undefined
   t.progress = undefined
+}
+
+/** Sign-in details for one channel, or null when it isn't connected. */
+export function ytTokensFor(store: Store, channelId: string | undefined): YouTubeTokens | null {
+  const clientId = store.accounts.youtubeClientId
+  const clientSecret = store.getSecrets().youtube?.clientSecret
+  const sec = store.ytSecret(channelId)
+  if (!channelId || !store.ytAccount(channelId) || !clientId || !clientSecret || !sec?.refreshToken) return null
+  return { clientId, clientSecret, refreshToken: sec.refreshToken, accessToken: sec.accessToken, accessTokenExpiresAt: sec.accessTokenExpiresAt }
+}
+
+/** Saves a refreshed access token so the next call doesn't refresh again. */
+export function saveYtTokens(store: Store, channelId: string, tokens: YouTubeTokens): void {
+  const sec = store.ytSecret(channelId)
+  if (sec && (sec.accessToken !== tokens.accessToken || sec.accessTokenExpiresAt !== tokens.accessTokenExpiresAt)) {
+    store.setYtSecret(channelId, { ...sec, accessToken: tokens.accessToken, accessTokenExpiresAt: tokens.accessTokenExpiresAt })
+  }
 }

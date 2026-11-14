@@ -17,7 +17,7 @@ import {
 } from 'electron'
 import { join } from 'node:path'
 import { Store, type Cipher } from './store'
-import { Scheduler } from './scheduler'
+import { saveYtTokens, Scheduler, ytTokensFor } from './scheduler'
 import { InstagramClient, type InstagramCredentials } from './instagram'
 import { YouTubeClient, type YouTubeTokens } from './youtube'
 import { ApiError } from './http'
@@ -26,8 +26,22 @@ import { cleanLibrary, importVideo, saveThumbnail, serveLibraryFile } from './me
 import { FolderLibrary } from './folder'
 import { instagramInsights, recordHistory, youtubeInsights } from './insights'
 import { instagramAnalytics, youtubeAnalytics, youtubeRetention } from './analytics'
+
+type IgAnalyticsData = Awaited<ReturnType<typeof instagramAnalytics>>
+type YtAnalyticsData = Awaited<ReturnType<typeof youtubeAnalytics>>
 import { applyAction, deletePost, PostError, reschedule, savePost, type PostAction } from './posts'
-import type { AppSnapshot, InstagramPageChoice, Platform, PostDraftInput, Settings } from '../shared/types'
+import {
+  accountKey,
+  type AccountInsights,
+  type AccountKey,
+  type AnalyticsState,
+  type AppSnapshot,
+  type InsightsState,
+  type InstagramPageChoice,
+  type Platform,
+  type PostDraftInput,
+  type Settings
+} from '../shared/types'
 import { isUpcoming } from '../shared/status'
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL
@@ -297,37 +311,65 @@ function notify(title: string, body: string, postId?: string): void {
 // ---------------- account health ----------------
 
 async function checkAccounts(): Promise<void> {
-  const acc = store.accounts
-  const sec = store.getSecrets()
-  if (acc.instagram.connected && acc.instagram.igUserId && sec.instagram?.accessToken) {
+  for (const acc of store.accounts.instagram) {
+    const sec = store.igSecret(acc.id)
+    if (!sec) {
+      store.patchIgAccount(acc.id, { problem: 'Cadence lost the sign-in for this account. Remove it and connect it again.' })
+      continue
+    }
     try {
-      const prof = await instagram().getProfile({ igUserId: acc.instagram.igUserId, accessToken: sec.instagram.accessToken })
-      const problem = sec.instagram.userToken
+      const prof = await instagram().getProfile({ igUserId: acc.id, accessToken: sec.accessToken })
+      const problem = sec.userToken
         ? undefined
-        : 'Cadence 1.2.2 uploads reels with a different token. Click Disconnect, then connect Instagram again with a fresh token from Graph API Explorer.'
-      store.setAccounts({ instagram: { ...store.accounts.instagram, username: prof.username, profilePictureUrl: prof.profilePictureUrl, problem } })
+        : 'Cadence now uploads reels with a different token. Remove this account, then connect it again with a fresh token from Graph API Explorer.'
+      store.patchIgAccount(acc.id, { username: prof.username || acc.username, profilePictureUrl: prof.profilePictureUrl ?? acc.profilePictureUrl, problem })
     } catch (err) {
-      if (err instanceof ApiError && err.opts.authError) store.setAccounts({ instagram: { ...store.accounts.instagram, problem: err.message } })
+      if (err instanceof ApiError && err.opts.authError) store.patchIgAccount(acc.id, { problem: err.message })
     }
   }
-  if (acc.youtube.connected && acc.youtube.clientId && sec.youtube?.refreshToken) {
+  for (const acc of store.accounts.youtube) {
+    const tokens = ytTokensFor(store, acc.id)
+    if (!tokens) {
+      store.patchYtAccount(acc.id, { problem: 'Cadence lost the sign-in for this channel. Click Reconnect.' })
+      continue
+    }
     try {
-      const tokens = { clientId: acc.youtube.clientId, clientSecret: sec.youtube.clientSecret, refreshToken: sec.youtube.refreshToken }
       await youtube.accessToken(tokens)
-      store.setAccounts({ youtube: { ...store.accounts.youtube, problem: undefined } })
+      saveYtTokens(store, acc.id, tokens)
+      store.patchYtAccount(acc.id, { problem: undefined })
     } catch (err) {
-      if (err instanceof ApiError && err.opts.authError) store.setAccounts({ youtube: { ...store.accounts.youtube, problem: err.message } })
+      if (err instanceof ApiError && err.opts.authError) store.patchYtAccount(acc.id, { problem: err.message })
     }
   }
 }
 
 // ---------------- views / insights ----------------
 
-function ytTokensFromStore(): YouTubeTokens | null {
-  const acc = store.accounts.youtube
-  const sec = store.getSecrets().youtube
-  if (!acc.connected || !acc.clientId || !sec?.clientSecret || !sec.refreshToken) return null
-  return { clientId: acc.clientId, clientSecret: sec.clientSecret, refreshToken: sec.refreshToken, accessToken: sec.accessToken, accessTokenExpiresAt: sec.accessTokenExpiresAt }
+/** Runs one fetch per connected account, keyed like "instagram:<id>". */
+async function perAccount<T>(
+  ig: (creds: InstagramCredentials) => Promise<T>,
+  yt: (tokens: YouTubeTokens) => Promise<T>
+): Promise<{ key: AccountKey; platform: Platform; id: string; result: PromiseSettledResult<T> }[]> {
+  const jobs: Promise<{ key: AccountKey; platform: Platform; id: string; result: PromiseSettledResult<T> }>[] = []
+  const settle = (p: Promise<T>) => p.then((value) => ({ status: 'fulfilled', value }) as const, (reason) => ({ status: 'rejected', reason }) as const)
+  for (const a of store.accounts.instagram) {
+    const sec = store.igSecret(a.id)
+    const job = sec ? ig({ igUserId: a.id, accessToken: sec.accessToken, userToken: sec.userToken }) : Promise.reject(new PostError('Not connected.'))
+    jobs.push(settle(job).then((result) => ({ key: accountKey('instagram', a.id), platform: 'instagram' as const, id: a.id, result })))
+  }
+  for (const a of store.accounts.youtube) {
+    const tokens = ytTokensFor(store, a.id)
+    const job = tokens
+      ? yt(tokens).finally(() => saveYtTokens(store, a.id, tokens))
+      : Promise.reject(new PostError('Not connected. Click Reconnect in Accounts.'))
+    jobs.push(settle(job).then((result) => ({ key: accountKey('youtube', a.id), platform: 'youtube' as const, id: a.id, result })))
+  }
+  return Promise.all(jobs)
+}
+
+/** Keys of the accounts that are connected right now. */
+function liveKeys(): Set<string> {
+  return new Set([...store.accounts.instagram.map((a) => accountKey('instagram', a.id)), ...store.accounts.youtube.map((a) => accountKey('youtube', a.id))])
 }
 
 /** Fetches view counts for every connected account. Concurrent calls share one run. */
@@ -335,44 +377,31 @@ function refreshInsights(): Promise<void> {
   if (insightsRun) return insightsRun
   insightsRun = (async () => {
     store.setInsights({ refreshing: true })
-    const acc = store.accounts
-    const igSec = store.getSecrets().instagram
-    const tokens = ytTokensFromStore()
-    const [ig, yt] = await Promise.allSettled([
-      acc.instagram.connected && acc.instagram.igUserId && igSec
-        ? instagramInsights(instagram(), { igUserId: acc.instagram.igUserId, accessToken: igSec.accessToken }, store.posts)
-        : Promise.resolve(undefined),
-      tokens ? youtubeInsights(youtube, tokens, store.posts) : Promise.resolve(undefined)
-    ])
-    if (tokens) {
-      const sec = store.getSecrets().youtube
-      if (sec && sec.accessToken !== tokens.accessToken) {
-        store.setSecrets({ youtube: { ...sec, accessToken: tokens.accessToken, accessTokenExpiresAt: tokens.accessTokenExpiresAt } })
+    const results = await perAccount(
+      (creds) => instagramInsights(instagram(), creds, store.posts),
+      (tokens) => youtubeInsights(youtube, tokens, store.posts)
+    )
+    const cur = store.insights
+    const live = liveKeys()
+    const accounts: InsightsState['accounts'] = {}
+    const errors: InsightsState['errors'] = {}
+    const today: Partial<Record<AccountKey, number>> = {}
+    // Keep the last good numbers when a refresh fails; drop accounts that were removed.
+    for (const [k, v] of Object.entries(cur.accounts) as [AccountKey, AccountInsights][]) if (live.has(k)) accounts[k] = v
+    for (const r of results) {
+      if (!live.has(r.key)) continue
+      if (r.result.status === 'fulfilled') {
+        accounts[r.key] = { ...r.result.value, platform: r.platform, accountId: r.id }
+        if (r.result.value.totalViews != null) today[r.key] = r.result.value.totalViews
+      } else {
+        errors[r.key] = friendly(r.result.reason)
       }
     }
-    const cur = store.insights
-    const igData = ig.status === 'fulfilled' ? ig.value : undefined
-    const ytData = yt.status === 'fulfilled' ? yt.value : undefined
-    store.setInsights({
-      // Keep the last good numbers when a refresh fails; drop them when the account is disconnected.
-      instagram: acc.instagram.connected ? (igData ?? cur.instagram) : undefined,
-      youtube: acc.youtube.connected ? (ytData ?? cur.youtube) : undefined,
-      instagramError: ig.status === 'rejected' ? friendly(ig.reason) : undefined,
-      youtubeError: yt.status === 'rejected' ? friendly(yt.reason) : undefined,
-      history: recordHistory(cur.history, { instagram: igData?.totalViews ?? undefined, youtube: ytData?.totalViews ?? undefined }),
-      refreshing: false
-    })
+    store.setInsights({ accounts, errors, history: recordHistory(cur.history, today), refreshing: false })
   })().finally(() => {
     insightsRun = null
   })
   return insightsRun
-}
-
-function saveYtAccessToken(tokens: YouTubeTokens): void {
-  const sec = store.getSecrets().youtube
-  if (sec && sec.accessToken !== tokens.accessToken) {
-    store.setSecrets({ youtube: { ...sec, accessToken: tokens.accessToken, accessTokenExpiresAt: tokens.accessTokenExpiresAt } })
-  }
 }
 
 /** Fetches watch time, skip rate and traffic data. Concurrent calls share one run. */
@@ -380,29 +409,49 @@ function refreshAnalytics(): Promise<void> {
   if (analyticsRun) return analyticsRun
   analyticsRun = (async () => {
     store.setAnalytics({ refreshing: true })
-    const acc = store.accounts
-    const igSec = store.getSecrets().instagram
-    const tokens = ytTokensFromStore()
-    const [ig, yt] = await Promise.allSettled([
-      acc.instagram.connected && acc.instagram.igUserId && igSec
-        ? instagramAnalytics(instagram(), { igUserId: acc.instagram.igUserId, accessToken: igSec.accessToken }, store.posts)
-        : Promise.resolve(undefined),
-      tokens ? youtubeAnalytics(youtube, tokens, store.posts) : Promise.resolve(undefined)
-    ])
-    if (tokens) saveYtAccessToken(tokens)
+    const results = await perAccount<IgAnalyticsData | YtAnalyticsData>(
+      (creds) => instagramAnalytics(instagram(), creds, store.posts),
+      (tokens) => youtubeAnalytics(youtube, tokens, store.posts)
+    )
     const cur = store.analytics
     const fetchedAt = new Date().toISOString()
-    store.setAnalytics({
-      instagram: acc.instagram.connected ? (ig.status === 'fulfilled' && ig.value ? { fetchedAt, ...ig.value } : cur.instagram) : undefined,
-      youtube: acc.youtube.connected ? (yt.status === 'fulfilled' && yt.value ? { fetchedAt, ...yt.value } : cur.youtube) : undefined,
-      instagramError: ig.status === 'rejected' ? friendly(ig.reason) : undefined,
-      youtubeError: yt.status === 'rejected' ? friendly(yt.reason) : undefined,
-      refreshing: false
-    })
+    const igIds = new Set(store.accounts.instagram.map((a) => a.id))
+    const ytIds = new Set(store.accounts.youtube.map((a) => a.id))
+    const ig: AnalyticsState['instagram'] = Object.fromEntries(Object.entries(cur.instagram).filter(([id]) => igIds.has(id)))
+    const yt: AnalyticsState['youtube'] = Object.fromEntries(Object.entries(cur.youtube).filter(([id]) => ytIds.has(id)))
+    const errors: AnalyticsState['errors'] = {}
+    for (const r of results) {
+      if (r.result.status === 'rejected') {
+        errors[r.key] = friendly(r.result.reason)
+        continue
+      }
+      if (r.platform === 'instagram' && igIds.has(r.id)) ig[r.id] = { fetchedAt, ...(r.result.value as IgAnalyticsData) }
+      if (r.platform === 'youtube' && ytIds.has(r.id)) yt[r.id] = { fetchedAt, ...(r.result.value as YtAnalyticsData) }
+    }
+    store.setAnalytics({ instagram: ig, youtube: yt, errors, refreshing: false })
   })().finally(() => {
     analyticsRun = null
   })
   return analyticsRun
+}
+
+/** Removes an account's cached numbers. */
+function forgetAccountData(platform: Platform, id: string): void {
+  const key = accountKey(platform, id)
+  const ins = store.insights
+  const accounts = { ...ins.accounts }
+  const errors = { ...ins.errors }
+  delete accounts[key]
+  delete errors[key]
+  store.setInsights({ accounts, errors })
+  const an = store.analytics
+  const igA = { ...an.instagram }
+  const ytA = { ...an.youtube }
+  const aErr = { ...an.errors }
+  if (platform === 'instagram') delete igA[id]
+  else delete ytA[id]
+  delete aErr[key]
+  store.setAnalytics({ instagram: igA, youtube: ytA, errors: aErr })
 }
 
 // ---------------- IPC ----------------
@@ -483,9 +532,10 @@ function registerIpc(): void {
   })
 
   // Instagram: step 1, exchange the token and list linked accounts.
-  handle('instagram:connect', async (args: { appId: string; appSecret: string; token: string }) => {
-    const appId = args.appId.trim()
-    const appSecret = args.appSecret.trim()
+  // App ID and secret can be left out once saved: every account uses the same Meta app.
+  handle('instagram:connect', async (args: { appId?: string; appSecret?: string; token: string }) => {
+    const appId = (args.appId ?? '').trim() || store.accounts.instagramAppId || ''
+    const appSecret = (args.appSecret ?? '').trim() || store.getSecrets().instagram?.appSecret || ''
     const token = args.token.trim()
     if (!/^\d{5,20}$/.test(appId)) throw new PostError('The App ID should be a long number. Find it at the top of your Meta app dashboard.')
     if (!/^[a-f0-9]{32}$/i.test(appSecret)) throw new PostError('The App Secret should be 32 letters and numbers. Find it in App settings → Basic.')
@@ -503,90 +553,85 @@ function registerIpc(): void {
     }
     pendingIgChoices = choices
     pendingIgApp = { appId, appSecret, userToken: longToken }
-    return choices.map(({ pageToken: _t, ...c }) => c)
+    return choices.map(({ pageToken: _t, ...c }) => ({ ...c, connected: !!store.igAccount(c.igUserId) }))
   })
 
-  // Instagram: step 2, save the chosen account.
-  handle('instagram:choose', async (igUserId: string) => {
-    const c = pendingIgChoices.find((x) => x.igUserId === igUserId)
-    if (!c || !pendingIgApp) throw new PostError('Please start the connection again.')
-    const creds: InstagramCredentials = { igUserId: c.igUserId, accessToken: c.pageToken }
-    const prof = await instagram().getProfile(creds)
-    store.setSecrets({ instagram: { accessToken: c.pageToken, userToken: pendingIgApp.userToken, appSecret: pendingIgApp.appSecret } })
-    store.setAccounts({
-      instagram: {
-        connected: true,
-        igUserId: c.igUserId,
-        username: prof.username || c.username,
+  // Instagram: step 2, save the chosen accounts (already-connected ones get the fresh token).
+  handle('instagram:choose', async (ids: string[] | string) => {
+    const wanted = new Set(Array.isArray(ids) ? ids : [ids])
+    const picked = pendingIgChoices.filter((x) => wanted.has(x.igUserId))
+    if (!picked.length || !pendingIgApp) throw new PostError('Please start the connection again.')
+    const app = pendingIgApp
+    const profiles = await Promise.all(picked.map((c) => instagram().getProfile({ igUserId: c.igUserId, accessToken: c.pageToken })))
+    store.setSecrets({ instagram: { accounts: store.getSecrets().instagram?.accounts ?? {}, appSecret: app.appSecret } })
+    store.setAccounts({ instagramAppId: app.appId })
+    picked.forEach((c, i) => {
+      store.setIgSecret(c.igUserId, { accessToken: c.pageToken, userToken: app.userToken })
+      store.upsertIgAccount({
+        id: c.igUserId,
+        username: profiles[i].username || c.username,
         pageName: c.pageName,
-        profilePictureUrl: prof.profilePictureUrl ?? c.profilePictureUrl,
-        appId: pendingIgApp.appId,
-        hasSecret: true,
-        connectedAt: new Date().toISOString(),
+        profilePictureUrl: profiles[i].profilePictureUrl ?? c.profilePictureUrl,
+        connectedAt: store.igAccount(c.igUserId)?.connectedAt ?? new Date().toISOString(),
         problem: undefined
-      }
+      })
     })
     pendingIgChoices = []
     pendingIgApp = null
     scheduler.kick()
+    void refreshInsights().catch(() => {})
     return store.accounts.instagram
   })
 
-  handle('instagram:disconnect', async () => {
-    store.setSecrets({ instagram: undefined })
-    store.setAccounts({ instagram: { connected: false } })
-    store.setInsights({ instagram: undefined, instagramError: undefined })
-    store.setAnalytics({ instagram: undefined, instagramError: undefined })
+  handle('instagram:disconnect', async (id: string) => {
+    store.setIgSecret(String(id), undefined)
+    store.setAccounts({ instagram: store.accounts.instagram.filter((a) => a.id !== id) })
+    forgetAccountData('instagram', String(id))
   })
 
-  handle('instagram:limit', async () => {
-    const acc = store.accounts.instagram
-    const sec = store.getSecrets().instagram
-    if (!acc.connected || !acc.igUserId || !sec) return null
-    return instagram().publishingLimit({ igUserId: acc.igUserId, accessToken: sec.accessToken })
+  handle('instagram:limit', async (id?: string) => {
+    const acc = store.igAccount(id ?? store.accounts.instagram[0]?.id)
+    const sec = store.igSecret(acc?.id)
+    if (!acc || !sec) return null
+    return instagram().publishingLimit({ igUserId: acc.id, accessToken: sec.accessToken })
   })
 
-  handle('youtube:connect', async (args: { clientId: string; clientSecret: string }) => {
-    const clientId = args.clientId.trim()
-    const clientSecret = args.clientSecret.trim()
+  // YouTube: sign in one channel. Client ID and secret can be left out once saved.
+  handle('youtube:connect', async (args: { clientId?: string; clientSecret?: string }) => {
+    const savedId = store.accounts.youtubeClientId
+    const clientId = (args.clientId ?? '').trim() || savedId || ''
+    const clientSecret = (args.clientSecret ?? '').trim() || store.getSecrets().youtube?.clientSecret || ''
     if (!clientId.endsWith('.apps.googleusercontent.com')) {
       throw new PostError('The Client ID should end with ".apps.googleusercontent.com". Copy it from Google Cloud → Credentials.')
     }
     if (clientSecret.length < 10) throw new PostError('Paste the Client secret from the same OAuth client.')
+    const others = store.accounts.youtube
+    if (savedId && clientId !== savedId && others.length) {
+      throw new PostError('Your other channels are signed in with a different Client ID. Use the same one, or remove those channels first.')
+    }
     const tokens = await youtube.authorize(clientId, clientSecret, (url) => void shell.openExternal(url))
     const ch = await youtube.channel(tokens)
-    store.setSecrets({
-      youtube: {
-        clientSecret,
-        refreshToken: tokens.refreshToken,
-        accessToken: tokens.accessToken,
-        accessTokenExpiresAt: tokens.accessTokenExpiresAt
-      }
-    })
-    store.setAccounts({
-      youtube: {
-        connected: true,
-        channelId: ch.id,
-        channelTitle: ch.title,
-        thumbnailUrl: ch.thumbnailUrl,
-        clientId,
-        hasSecret: true,
-        connectedAt: new Date().toISOString(),
-        quotaUsedToday: 0,
-        problem: undefined
-      }
+    store.setSecrets({ youtube: { accounts: store.getSecrets().youtube?.accounts ?? {}, clientSecret } })
+    store.setAccounts({ youtubeClientId: clientId, youtubeHasSecret: true })
+    store.setYtSecret(ch.id, { refreshToken: tokens.refreshToken, accessToken: tokens.accessToken, accessTokenExpiresAt: tokens.accessTokenExpiresAt })
+    store.upsertYtAccount({
+      id: ch.id,
+      channelTitle: ch.title,
+      thumbnailUrl: ch.thumbnailUrl,
+      connectedAt: store.ytAccount(ch.id)?.connectedAt ?? new Date().toISOString(),
+      problem: undefined
     })
     mainWindow?.show()
     mainWindow?.focus()
     scheduler.kick()
-    return store.accounts.youtube
+    void refreshInsights().catch(() => {})
+    return store.ytAccount(ch.id)!
   })
 
-  handle('youtube:disconnect', async () => {
-    store.setSecrets({ youtube: undefined })
-    store.setAccounts({ youtube: { connected: false, quotaUsedToday: 0 } })
-    store.setInsights({ youtube: undefined, youtubeError: undefined })
-    store.setAnalytics({ youtube: undefined, youtubeError: undefined })
+  handle('youtube:disconnect', async (id: string) => {
+    store.setYtSecret(String(id), undefined)
+    store.setAccounts({ youtube: store.accounts.youtube.filter((a) => a.id !== id) })
+    forgetAccountData('youtube', String(id))
     retentionCache.clear()
   })
 
@@ -619,14 +664,15 @@ function registerIpc(): void {
     return store.analytics
   })
 
-  handle('analytics:retention', async (videoId: string) => {
+  handle('analytics:retention', async (videoId: string, channelId?: string) => {
     const hit = retentionCache.get(String(videoId))
     if (hit && Date.now() - hit.at < 30 * 60_000) return hit.points
-    const tokens = ytTokensFromStore()
-    if (!tokens) throw new PostError('Connect YouTube to see retention.')
-    const v = store.analytics.youtube?.videos.find((x) => x.id === videoId)
+    const id = channelId ?? store.accounts.youtube.find((a) => store.analytics.youtube[a.id]?.videos.some((v) => v.id === videoId))?.id ?? store.accounts.youtube[0]?.id
+    const tokens = ytTokensFor(store, id)
+    if (!tokens || !id) throw new PostError('Connect YouTube to see retention.')
+    const v = store.analytics.youtube[id]?.videos.find((x) => x.id === videoId)
     const points = await youtubeRetention(youtube, tokens, String(videoId), v?.publishedAt)
-    saveYtAccessToken(tokens)
+    saveYtTokens(store, id, tokens)
     retentionCache.set(String(videoId), { at: Date.now(), points })
     return points
   })
@@ -663,8 +709,8 @@ app.whenReady().then(async () => {
   // Keep view counts fresh in the background so the Views tab has a daily history.
   const insightsTick = () => {
     const a = store.accounts
-    const last = Math.max(Date.parse(store.insights.instagram?.fetchedAt ?? '') || 0, Date.parse(store.insights.youtube?.fetchedAt ?? '') || 0)
-    if ((a.instagram.connected || a.youtube.connected) && Date.now() - last > 3 * 3600 * 1000) void refreshInsights().catch(() => undefined)
+    const last = Math.max(0, ...Object.values(store.insights.accounts).map((x) => Date.parse(x?.fetchedAt ?? '') || 0))
+    if ((a.instagram.length || a.youtube.length) && Date.now() - last > 3 * 3600 * 1000) void refreshInsights().catch(() => undefined)
   }
   setTimeout(insightsTick, 30_000)
   setInterval(insightsTick, 30 * 60 * 1000)

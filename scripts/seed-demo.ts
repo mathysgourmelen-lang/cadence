@@ -9,11 +9,27 @@ import type { Post } from '../src/shared/types'
 const [dataDir, videos] = process.argv.slice(2)
 rmSync(dataDir, { recursive: true, force: true })
 const store = new Store(dataDir, { encrypt: (s) => Buffer.from(`plain:${s}`), decrypt: (b) => b.toString().slice(6) })
+const IG1 = '17841400000000000'
+const IG2 = '17841400000000001'
+const YT1 = 'UC123'
+const YT2 = 'UC456'
 store.setAccounts({
-  instagram: { connected: true, username: 'max.creates', pageName: 'Max Creates', igUserId: '17841400000000000', appId: '1234567890', hasSecret: true },
-  youtube: { connected: true, channelTitle: 'Max Creates', channelId: 'UC123', clientId: 'x.apps.googleusercontent.com', hasSecret: true, quotaUsedToday: 0 }
+  instagram: [
+    { id: IG1, username: 'max.creates', pageName: 'Max Creates' },
+    { id: IG2, username: 'max.cooks', pageName: 'Max Cooks' }
+  ],
+  youtube: [
+    { id: YT1, channelTitle: 'Max Creates' },
+    { id: YT2, channelTitle: 'Max Cooks' }
+  ],
+  instagramAppId: '1234567890',
+  youtubeClientId: 'x.apps.googleusercontent.com',
+  youtubeHasSecret: true
 })
-store.setSecrets({ instagram: { accessToken: 'demo' }, youtube: { clientSecret: 'demo', refreshToken: 'demo' } })
+store.setSecrets({
+  instagram: { appSecret: 'demo', accounts: { [IG1]: { accessToken: 'demo', userToken: 'demo' }, [IG2]: { accessToken: 'demo', userToken: 'demo' } } },
+  youtube: { clientSecret: 'demo', accounts: { [YT1]: { refreshToken: 'demo' }, [YT2]: { refreshToken: 'demo' } } }
+})
 store.setSettings({ snippets: [{ id: 's1', name: 'Core tags', text: '#reels #creator #dailyvlog' }, { id: 's2', name: 'Link in bio', text: 'Full video → link in bio 🔗' }] })
 store.addQuota(3)
 
@@ -38,8 +54,8 @@ async function add(file: string, when: string, cap: string, title: string, ig: P
     updatedAt: now,
     scheduledAt: when,
     video: v,
-    instagram: { enabled: true, state: 'scheduled', attempts: 0, log: [], caption: cap, shareToFeed: true, coverOffsetMs: null, ...ig },
-    youtube: { enabled: true, state: 'scheduled', attempts: 0, log: [], title, description: cap, tags: ['shorts'], privacy: 'public', madeForKids: false, categoryId: '22', mode: 'atTime', ...yt }
+    instagram: { enabled: true, accountId: IG1, state: 'scheduled', attempts: 0, log: [], caption: cap, shareToFeed: true, coverOffsetMs: null, ...ig },
+    youtube: { enabled: true, accountId: YT1, state: 'scheduled', attempts: 0, log: [], title, description: cap, tags: ['shorts'], privacy: 'public', madeForKids: false, categoryId: '22', mode: 'atTime', ...yt }
   }
   store.upsertPost(p)
 }
@@ -47,8 +63,9 @@ async function add(file: string, when: string, cap: string, title: string, ig: P
 ;(async () => {
   await add('morning-routine.mp4', at(3, 30), 'My 5am routine that actually stuck ☀️ Save this for tomorrow morning.\n\n#morningroutine #productivity', 'My 5am routine that actually stuck ☀️', {}, { state: 'scheduled_remote', mode: 'native', url: 'https://youtube.com/shorts/x' })
   await add('desk-setup.mp4', at(27), 'Desk setup tour 2026, everything linked in bio 🖥️ #desksetup #workspace', 'Desk setup tour 2026 🖥️', {}, { state: 'scheduled_remote', mode: 'native' })
-  await add('latte-art.mp4', at(51, 15), 'Latte art in slow motion never gets old ☕️ #coffee #latteart', 'Latte art in slow motion ☕️', {}, { enabled: false })
+  await add('latte-art.mp4', at(51, 15), 'Latte art in slow motion never gets old ☕️ #coffee #latteart', 'Latte art in slow motion ☕️', { accountId: IG2 }, { enabled: false })
   await add('tokyo.mp4', at(98), 'Golden hour in Shibuya 🌆 #tokyo #travel', 'Golden hour in Shibuya', { enabled: false }, {})
+  await add('latte-art.mp4', at(75), '15-minute garlic pasta 🍝 #recipe #pasta', '15-minute garlic pasta 🍝', { accountId: IG2 }, { accountId: YT2 })
   await add('morning-routine.mp4', at(-22), 'Studio vlog #12 🎙️', 'Studio vlog #12', { state: 'published', url: 'https://instagram.com/reel/x', publishedAt: at(-22) }, { state: 'published', url: 'https://youtube.com/shorts/y', publishedAt: at(-22) })
   await add('desk-setup.mp4', at(-46), 'Sunset from 120m up 🚁', 'Sunset from 120m up', { state: 'failed', error: 'Instagram could not process this video (ERROR). Check the format: H.264, AAC audio, 23–60 fps.', attempts: 1 }, { state: 'published', url: 'https://youtube.com/shorts/z', publishedAt: at(-46) })
   // Library folder + view counts for the Library and Views tabs.
@@ -107,15 +124,26 @@ async function add(file: string, when: string, cap: string, title: string, ig: P
       return [d.toISOString(), Math.round(base * growth * timeBoost * dayBoost * (0.6 + rand() * 0.8))]
     })
   }
+  const k = (p: 'instagram' | 'youtube', id: string) => `${p}:${id}` as const
+  const scale = <T extends { id: string; views: number }>(xs: T[], f: number) => xs.map((x) => ({ ...x, id: `${x.id}b`, views: Math.round(x.views * f) }))
   store.setInsights({
     refreshing: false,
+    errors: {},
     history: Array.from({ length: 91 }, (_, i) => ({
       day: day(90 - i),
-      instagram: Math.round(1_210_000 + i * 6_100 + Math.sin(i / 3) * 4_000 + (i > 70 ? (i - 70) * 9_000 : 0)),
-      youtube: Math.round(3_550_000 + i * 14_500 + Math.cos(i / 4) * 9_000 + (i > 78 ? (i - 78) * 30_000 : 0))
+      values: {
+        [k('instagram', IG1)]: Math.round(1_210_000 + i * 6_100 + Math.sin(i / 3) * 4_000 + (i > 70 ? (i - 70) * 9_000 : 0)),
+        [k('instagram', IG2)]: Math.round(240_000 + i * 2_300 + Math.sin(i / 5) * 1_500),
+        [k('youtube', YT1)]: Math.round(3_550_000 + i * 14_500 + Math.cos(i / 4) * 9_000 + (i > 78 ? (i - 78) * 30_000 : 0)),
+        [k('youtube', YT2)]: Math.round(610_000 + i * 4_800 + Math.cos(i / 6) * 3_000)
+      }
     })),
-    instagram: { fetchedAt, totalViews: 1_982_640, followers: 48_213, postCount: 212, countedPosts: 212, top: igTop, recent: igTop, timing: demoTiming(140, 6_000, 7) },
-    youtube: { fetchedAt, totalViews: 5_216_904, followers: 61_480, postCount: 148, countedPosts: 148, top: ytTop, recent: ytTop, timing: demoTiming(110, 14_000, 11) }
+    accounts: {
+      [k('instagram', IG1)]: { platform: 'instagram' as const, accountId: IG1, fetchedAt, totalViews: 1_982_640, followers: 48_213, postCount: 212, countedPosts: 212, top: igTop, recent: igTop, timing: demoTiming(140, 6_000, 7) },
+      [k('instagram', IG2)]: { platform: 'instagram' as const, accountId: IG2, fetchedAt, totalViews: 451_200, followers: 9_870, postCount: 64, countedPosts: 64, top: scale(igTop, 0.22), recent: scale(igTop, 0.22), timing: demoTiming(60, 1_500, 3) },
+      [k('youtube', YT1)]: { platform: 'youtube' as const, accountId: YT1, fetchedAt, totalViews: 5_216_904, followers: 61_480, postCount: 148, countedPosts: 148, top: ytTop, recent: ytTop, timing: demoTiming(110, 14_000, 11) },
+      [k('youtube', YT2)]: { platform: 'youtube' as const, accountId: YT2, fetchedAt, totalViews: 1_045_330, followers: 12_040, postCount: 57, countedPosts: 57, top: scale(ytTop, 0.18), recent: scale(ytTop, 0.18), timing: demoTiming(50, 3_000, 5) }
+    }
   })
   const titles = ['My 5am routine that actually stuck ☀️', 'Desk setup tour 2026 🖥️', 'Latte art in slow motion ☕️', 'Golden hour in Shibuya 🌆', 'Studio vlog #12 🎙️', 'Sunset from 120m up 🚁', '3 habits that changed my mornings', 'What I eat in a day', 'Room makeover in 30 seconds', 'Coffee shop tour, Tokyo']
   const reels = titles.map((title, i) => {
@@ -162,20 +190,24 @@ async function add(file: string, when: string, cap: string, title: string, ig: P
       viaCadence: i % 2 === 0 || undefined
     }
   })
+  const traffic = [
+    { source: 'SHORTS', views: 812_400 },
+    { source: 'SUBSCRIBER', views: 96_300 },
+    { source: 'YT_SEARCH', views: 41_800 },
+    { source: 'RELATED_VIDEO', views: 22_600 },
+    { source: 'EXT_URL', views: 9_400 },
+    { source: 'NO_LINK_OTHER', views: 5_100 }
+  ]
   store.setAnalytics({
     refreshing: false,
-    instagram: { fetchedAt, reels, unavailable: [] },
+    errors: {},
+    instagram: {
+      [IG1]: { fetchedAt, reels, unavailable: [] },
+      [IG2]: { fetchedAt, reels: reels.slice(0, 6).map((r) => ({ ...r, id: `${r.id}b`, views: Math.round(r.views! * 0.2) })), unavailable: [] }
+    },
     youtube: {
-      fetchedAt,
-      videos: ytVideos,
-      traffic: [
-        { source: 'SHORTS', views: 812_400 },
-        { source: 'SUBSCRIBER', views: 96_300 },
-        { source: 'YT_SEARCH', views: 41_800 },
-        { source: 'RELATED_VIDEO', views: 22_600 },
-        { source: 'EXT_URL', views: 9_400 },
-        { source: 'NO_LINK_OTHER', views: 5_100 }
-      ]
+      [YT1]: { fetchedAt, videos: ytVideos, traffic },
+      [YT2]: { fetchedAt, videos: ytVideos.slice(0, 5).map((v) => ({ ...v, id: `${v.id}b`, views: Math.round(v.views * 0.2) })), traffic: traffic.map((t) => ({ ...t, views: Math.round(t.views * 0.2) })) }
     }
   })
   await store.flush()

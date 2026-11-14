@@ -3,7 +3,7 @@ import { Topbar } from '../App'
 import { api, progressKey, useApp } from '../state'
 import { Icon, InstagramMark, YouTubeMark } from '../icons'
 import { MenuButton, Modal, Progress, useFeedback, type MenuEntry } from '../ui'
-import { cx, dayLabel, relative, startOfDay, timeLabel } from '../util'
+import { accountLabel, cx, dayLabel, relative, startOfDay, timeLabel } from '../util'
 import { MiniCalendar } from './DateTimePicker'
 import type { Platform, Post, TargetBase } from '../../../shared/types'
 import { IN_FLIGHT, isEditable, isUpcoming, postStatus, stateLabel } from '../../../shared/status'
@@ -36,7 +36,7 @@ export default function Queue() {
   const weekEnd = now + 7 * 86400_000
   const thisWeek = scheduled.filter((p) => p.scheduledAt && Date.parse(p.scheduledAt) < weekEnd).length
   const inFlight = posts.filter((p) => postStatus(p) === 'in_progress').length
-  const quota = snap!.accounts.youtube.quotaUsedToday
+  const quota = snap!.accounts.youtubeQuotaUsedToday
 
   useEffect(() => {
     if (!highlight) return
@@ -149,8 +149,10 @@ export default function Queue() {
 }
 
 export function TargetLine({ post, platform }: { post: Post; platform: Platform }) {
-  const { progress, now } = useApp()
+  const { progress, now, snap } = useApp()
   const t: TargetBase = platform === 'instagram' ? post.instagram : post.youtube
+  const several = snap!.accounts[platform].length > 1
+  const who = accountLabel(snap!.accounts, platform, (platform === 'instagram' ? post.instagram : post.youtube).accountId)
   const mark = platform === 'instagram' ? <InstagramMark size={16} /> : <YouTubeMark size={16} />
   if (!t.enabled)
     return (
@@ -183,6 +185,7 @@ export function TargetLine({ post, platform }: { post: Post; platform: Platform 
       <div className="tstate">
         <div className="row" style={{ gap: 6 }}>
           <span className={cx('pill', kind)}>{label}</span>
+          {several && who && <span className="target-acct ellipsis">{who}</span>}
           {retry && <span className="faint small ellipsis">{retry}</span>}
         </div>
         {t.state === 'uploading' && <Progress value={pct} />}

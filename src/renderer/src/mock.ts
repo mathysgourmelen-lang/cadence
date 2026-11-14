@@ -86,17 +86,31 @@ const ytTop = [stat('y1', 'My 5am routine that actually stuck ☀️', 1_204_000
 
 let state: AppSnapshot = {
   version: '1.0.0',
-  analytics: { refreshing: false },
+  analytics: { refreshing: false, instagram: {}, youtube: {}, errors: {} },
   insights: {
     refreshing: false,
-    history: Array.from({ length: 30 }, (_, i) => ({ day: day(29 - i), instagram: 1_480_000 + i * 9_800 + (i % 4) * 2_100, youtube: 3_900_000 + i * 31_000 + (i % 3) * 7_000 })),
-    instagram: { fetchedAt: new Date().toISOString(), totalViews: 1_772_400, followers: 48_210, postCount: 212, countedPosts: 212, top: igTop, recent: igTop },
-    youtube: { fetchedAt: new Date().toISOString(), totalViews: 4_830_000, followers: 61_400, postCount: 148, countedPosts: 148, top: ytTop, recent: ytTop }
+    errors: {},
+    history: Array.from({ length: 30 }, (_, i) => ({
+      day: day(29 - i),
+      values: { 'instagram:1784': 1_480_000 + i * 9_800 + (i % 4) * 2_100, 'instagram:1785': 210_000 + i * 2_400, 'youtube:UC1': 3_900_000 + i * 31_000 + (i % 3) * 7_000 }
+    })),
+    accounts: {
+      'instagram:1784': { platform: 'instagram', accountId: '1784', fetchedAt: new Date().toISOString(), totalViews: 1_772_400, followers: 48_210, postCount: 212, countedPosts: 212, top: igTop, recent: igTop },
+      'instagram:1785': { platform: 'instagram', accountId: '1785', fetchedAt: new Date().toISOString(), totalViews: 282_000, followers: 6_900, postCount: 41, countedPosts: 41, top: igTop.slice(1), recent: igTop.slice(1) },
+      'youtube:UC1': { platform: 'youtube', accountId: 'UC1', fetchedAt: new Date().toISOString(), totalViews: 4_830_000, followers: 61_400, postCount: 148, countedPosts: 148, top: ytTop, recent: ytTop }
+    }
   },
   settings,
   accounts: {
-    instagram: { connected: true, username: 'max.creates', pageName: 'Max Creates', igUserId: '1784', appId: '123', hasSecret: true },
-    youtube: { connected: true, channelTitle: 'Max Creates', channelId: 'UC1', clientId: 'x.apps.googleusercontent.com', hasSecret: true, quotaUsedToday: 3200 }
+    instagram: [
+      { id: '1784', username: 'max.creates', pageName: 'Max Creates' },
+      { id: '1785', username: 'max.cooks', pageName: 'Max Cooks' }
+    ],
+    youtube: [{ id: 'UC1', channelTitle: 'Max Creates' }],
+    instagramAppId: '123',
+    youtubeClientId: 'x.apps.googleusercontent.com',
+    youtubeHasSecret: true,
+    youtubeQuotaUsedToday: 3200
   },
   posts: [
     post(1, 'morning-routine-v3.mp4', hoursFromNow(1, 30), { state: 'ready' }, { state: 'scheduled_remote', url: 'https://youtube.com' }, 'My 5am routine that actually stuck ☀️ Save this for tomorrow morning.\n\n#morningroutine #productivity #habits', 'My 5am routine that actually stuck ☀️'),
@@ -175,13 +189,17 @@ export const mockApi: CadenceApi = {
   },
   async instagramConnect() {
     await delay(800)
-    return [{ pageId: '1', pageName: 'Max Creates', igUserId: '1784', username: 'max.creates' }]
+    return [
+      { pageId: '1', pageName: 'Max Creates', igUserId: '1784', username: 'max.creates', connected: true },
+      { pageId: '2', pageName: 'Max Cooks', igUserId: '1785', username: 'max.cooks', connected: true },
+      { pageId: '3', pageName: 'Max Travels', igUserId: '1786', username: 'max.travels', connected: false }
+    ]
   },
   async instagramChoose() {
     return state.accounts.instagram
   },
-  async instagramDisconnect() {
-    state = { ...state, accounts: { ...state.accounts, instagram: { connected: false } } }
+  async instagramDisconnect(id) {
+    state = { ...state, accounts: { ...state.accounts, instagram: state.accounts.instagram.filter((a) => a.id !== id) } }
     emit()
   },
   async instagramLimit() {
@@ -189,10 +207,10 @@ export const mockApi: CadenceApi = {
   },
   async youtubeConnect() {
     await delay(1500)
-    return state.accounts.youtube
+    return state.accounts.youtube[0]
   },
-  async youtubeDisconnect() {
-    state = { ...state, accounts: { ...state.accounts, youtube: { connected: false, quotaUsedToday: 0 } } }
+  async youtubeDisconnect(id) {
+    state = { ...state, accounts: { ...state.accounts, youtube: state.accounts.youtube.filter((a) => a.id !== id) } }
     emit()
   },
   async pickYouTubeThumbnail() {

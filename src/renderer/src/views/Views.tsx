@@ -4,7 +4,7 @@ import { api, useApp } from '../state'
 import { Icon, InstagramMark, YouTubeMark } from '../icons'
 import { Avatar, Segmented, Spinner, useFeedback } from '../ui'
 import { cx, relative } from '../util'
-import type { AccountInsights, InsightsPoint, MediaStat } from '../../../shared/types'
+import { accountKey, type AccountInsights, type AccountKey, type InsightsPoint, type MediaStat } from '../../../shared/types'
 
 type Platform = 'instagram' | 'youtube'
 type Range = 7 | 30 | 90
@@ -24,15 +24,25 @@ function dayDate(day: string): Date {
   return new Date(y, m - 1, d)
 }
 
-/** Points for one platform within the range, oldest first. */
-function series(history: InsightsPoint[], key: Platform, range: Range, now: number): { day: string; v: number }[] {
+/** Points for one account within the range, oldest first. */
+function series(history: InsightsPoint[], key: AccountKey, range: Range, now: number): { day: string; v: number }[] {
   const from = now - range * 86400_000
-  return history.filter((p) => p[key] != null && dayDate(p.day).getTime() >= from - 86400_000).map((p) => ({ day: p.day, v: p[key]! }))
+  return history.filter((p) => p.values?.[key] != null && dayDate(p.day).getTime() >= from - 86400_000).map((p) => ({ day: p.day, v: p.values[key]! }))
 }
 
 function gain(points: { v: number }[]): number | null {
   if (points.length < 2) return null
   return Math.max(0, points[points.length - 1].v - points[0].v)
+}
+
+interface Acct {
+  key: AccountKey
+  platform: Platform
+  name: string
+  avatar?: string
+  data?: AccountInsights
+  error?: string
+  points: { day: string; v: number }[]
 }
 
 export default function ViewsTab() {
@@ -52,25 +62,35 @@ export default function ViewsTab() {
     }
   }
 
+  const fetched = Math.max(0, ...Object.values(ins.accounts).map((a) => Date.parse(a?.fetchedAt ?? '') || 0))
+  const noAccounts = !igAcc.length && !ytAcc.length
+
   // Refresh on open when the numbers are more than 15 minutes old.
   useEffect(() => {
     if (asked.current) return
     asked.current = true
-    const last = Math.max(Date.parse(ins.instagram?.fetchedAt ?? '') || 0, Date.parse(ins.youtube?.fetchedAt ?? '') || 0)
-    if ((igAcc.connected || ytAcc.connected) && Date.now() - last > 15 * 60_000) void refresh(false)
+    if (!noAccounts && Date.now() - fetched > 15 * 60_000) void refresh(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const igSeries = useMemo(() => series(ins.history, 'instagram', range, now), [ins.history, range, now])
-  const ytSeries = useMemo(() => series(ins.history, 'youtube', range, now), [ins.history, range, now])
+  const accts: Acct[] = useMemo(
+    () => [
+      ...igAcc.map((a) => {
+        const key = accountKey('instagram', a.id)
+        return { key, platform: 'instagram' as const, name: `@${a.username}`, avatar: a.profilePictureUrl, data: ins.accounts[key], error: ins.errors[key], points: series(ins.history, key, range, now) }
+      }),
+      ...ytAcc.map((a) => {
+        const key = accountKey('youtube', a.id)
+        return { key, platform: 'youtube' as const, name: a.channelTitle, avatar: a.thumbnailUrl, data: ins.accounts[key], error: ins.errors[key], points: series(ins.history, key, range, now) }
+      })
+    ],
+    [igAcc, ytAcc, ins, range, now]
+  )
 
-  const totals = [igAcc.connected ? ins.instagram?.totalViews : null, ytAcc.connected ? ins.youtube?.totalViews : null].filter((v): v is number => v != null)
+  const totals = accts.map((a) => a.data?.totalViews).filter((v): v is number => v != null)
   const total = totals.length ? totals.reduce((a, b) => a + b, 0) : null
-  const igGain = gain(igSeries)
-  const ytGain = gain(ytSeries)
-  const totalGain = igGain != null || ytGain != null ? (igGain ?? 0) + (ytGain ?? 0) : null
-  const fetched = Math.max(Date.parse(ins.instagram?.fetchedAt ?? '') || 0, Date.parse(ins.youtube?.fetchedAt ?? '') || 0)
-  const noAccounts = !igAcc.connected && !ytAcc.connected
+  const gains = accts.map((a) => gain(a.points)).filter((g): g is number => g != null)
+  const totalGain = gains.length ? gains.reduce((a, b) => a + b, 0) : null
 
   return (
     <>
@@ -110,7 +130,7 @@ export default function ViewsTab() {
             <div className="views-hero card">
               <div>
                 <div className="k">
-                  <Icon.Eye size={15} /> Total views, all accounts
+                  <Icon.Eye size={15} /> Total views, {accts.length > 1 ? `all ${accts.length} accounts` : 'all accounts'}
                 </div>
                 <div className="v" title={total != null ? full(total) : undefined}>
                   {total != null ? full(total) : ins.refreshing ? '…' : '—'}
@@ -126,47 +146,56 @@ export default function ViewsTab() {
                 </div>
               </div>
               <div className="views-split">
-                {igAcc.connected && <SplitRow mark={<InstagramMark size={16} />} label={`@${igAcc.username}`} value={ins.instagram?.totalViews} total={total} color="var(--ig)" />}
-                {ytAcc.connected && <SplitRow mark={<YouTubeMark size={16} />} label={ytAcc.channelTitle ?? 'YouTube'} value={ins.youtube?.totalViews} total={total} color="var(--yt)" />}
+                {accts.map((a) => (
+                  <SplitRow
+                    key={a.key}
+                    mark={a.platform === 'instagram' ? <InstagramMark size={16} /> : <YouTubeMark size={16} />}
+                    label={a.name}
+                    value={a.data?.totalViews}
+                    total={total}
+                    color={a.platform === 'instagram' ? 'var(--ig)' : 'var(--yt)'}
+                  />
+                ))}
               </div>
             </div>
 
             <div className="views-accounts">
-              <AccountCard
-                platform="instagram"
-                connected={igAcc.connected}
-                name={igAcc.connected ? `@${igAcc.username}` : 'Instagram'}
-                avatar={igAcc.profilePictureUrl}
-                data={ins.instagram}
-                error={ins.instagramError}
-                points={igSeries}
-                range={range}
-                refreshing={ins.refreshing}
-                followersLabel="followers"
-                postsLabel="posts"
-                onConnect={() => go('accounts')}
-                onGuide={() => go('guide', { guideAnchor: 'instagram' })}
-              />
-              <AccountCard
-                platform="youtube"
-                connected={ytAcc.connected}
-                name={ytAcc.connected ? (ytAcc.channelTitle ?? 'YouTube') : 'YouTube'}
-                avatar={ytAcc.thumbnailUrl}
-                data={ins.youtube}
-                error={ins.youtubeError}
-                points={ytSeries}
-                range={range}
-                refreshing={ins.refreshing}
-                followersLabel="subscribers"
-                postsLabel="videos"
-                onConnect={() => go('accounts')}
-                onGuide={() => go('guide', { guideAnchor: 'youtube' })}
-              />
+              {accts.map((a) => (
+                <AccountCard
+                  key={a.key}
+                  platform={a.platform}
+                  connected
+                  name={a.name}
+                  avatar={a.avatar}
+                  data={a.data}
+                  error={a.error}
+                  points={a.points}
+                  range={range}
+                  refreshing={ins.refreshing}
+                  followersLabel={a.platform === 'instagram' ? 'followers' : 'subscribers'}
+                  postsLabel={a.platform === 'instagram' ? 'posts' : 'videos'}
+                  onConnect={() => go('accounts')}
+                  onGuide={() => go('guide', { guideAnchor: a.platform })}
+                />
+              ))}
+              {!igAcc.length && (
+                <AccountCard platform="instagram" connected={false} name="Instagram" points={[]} range={range} refreshing={false} followersLabel="" postsLabel="" onConnect={() => go('accounts')} onGuide={() => undefined} />
+              )}
+              {!ytAcc.length && (
+                <AccountCard platform="youtube" connected={false} name="YouTube" points={[]} range={range} refreshing={false} followersLabel="" postsLabel="" onConnect={() => go('accounts')} onGuide={() => undefined} />
+              )}
             </div>
 
             <div className="views-lists">
-              {igAcc.connected && <TopList title="Top Instagram posts" mark={<InstagramMark size={16} />} items={ins.instagram?.top ?? []} loading={ins.refreshing && !ins.instagram} />}
-              {ytAcc.connected && <TopList title="Top YouTube videos" mark={<YouTubeMark size={16} />} items={ins.youtube?.top ?? []} loading={ins.refreshing && !ins.youtube} />}
+              {accts.map((a) => (
+                <TopList
+                  key={a.key}
+                  title={accts.length > 2 ? `Top posts · ${a.name}` : a.platform === 'instagram' ? 'Top Instagram posts' : 'Top YouTube videos'}
+                  mark={a.platform === 'instagram' ? <InstagramMark size={16} /> : <YouTubeMark size={16} />}
+                  items={(a.data?.top ?? []).slice(0, accts.length > 2 ? 6 : 12)}
+                  loading={ins.refreshing && !a.data}
+                />
+              ))}
             </div>
           </>
         )}

@@ -4,7 +4,7 @@
 import { ApiError } from './http'
 import type { InstagramClient, InstagramCredentials, IgMediaItem } from './instagram'
 import type { YouTubeClient, YouTubeTokens } from './youtube'
-import type { AccountInsights, InsightsPoint, InsightsState, MediaStat, Post, TimingSample } from '../shared/types'
+import type { AccountInsights, AccountKey, InsightsPoint, InsightsState, MediaStat, Post, TimingSample } from '../shared/types'
 
 export const IG_MAX_POSTS = 1000
 const IG_PER_POST_FALLBACK = 300
@@ -13,7 +13,10 @@ const TOP_N = 12
 const RECENT_N = 24
 const HISTORY_DAYS = 400
 
-export const EMPTY_INSIGHTS: InsightsState = { history: [], refreshing: false }
+export const EMPTY_INSIGHTS: InsightsState = { accounts: {}, errors: {}, history: [], refreshing: false }
+
+/** What a fetch returns; the caller adds which account it belongs to. */
+export type FetchedInsights = Omit<AccountInsights, 'platform' | 'accountId'>
 
 function isPermissionError(err: unknown): boolean {
   return err instanceof ApiError && !!err.opts.authError && /permission/i.test(err.message)
@@ -37,7 +40,7 @@ function rank(items: MediaStat[]): { top: MediaStat[]; recent: MediaStat[] } {
   return { top, recent }
 }
 
-export async function instagramInsights(client: InstagramClient, creds: InstagramCredentials, posts: Post[]): Promise<AccountInsights> {
+export async function instagramInsights(client: InstagramClient, creds: InstagramCredentials, posts: Post[]): Promise<FetchedInsights> {
   const ours = new Set(posts.map((p) => p.instagram.mediaId).filter(Boolean) as string[])
   const acct = await client.accountStats(creds)
   const items: IgMediaItem[] = []
@@ -117,7 +120,7 @@ export async function instagramInsights(client: InstagramClient, creds: Instagra
   }
 }
 
-export async function youtubeInsights(client: YouTubeClient, tokens: YouTubeTokens, posts: Post[]): Promise<AccountInsights> {
+export async function youtubeInsights(client: YouTubeClient, tokens: YouTubeTokens, posts: Post[]): Promise<FetchedInsights> {
   const ours = new Set(posts.map((p) => p.youtube.videoId).filter(Boolean) as string[])
   const ch = await client.channelStats(tokens)
   const ids = ch.uploadsPlaylist ? await client.uploadIds(tokens, ch.uploadsPlaylist, YT_MAX_VIDEOS) : []
@@ -154,14 +157,13 @@ export function localDay(d = new Date()): string {
 }
 
 /** Records today's totals (one point per day, latest value wins). */
-export function recordHistory(history: InsightsPoint[], patch: Omit<InsightsPoint, 'day'>, now = new Date()): InsightsPoint[] {
+export function recordHistory(history: InsightsPoint[], patch: Partial<Record<AccountKey, number>>, now = new Date()): InsightsPoint[] {
   const day = localDay(now)
   const out = history.filter((p) => p.day !== day)
-  const prev = history.find((p) => p.day === day) ?? { day }
-  const point: InsightsPoint = { ...prev, day }
-  if (patch.instagram != null) point.instagram = patch.instagram
-  if (patch.youtube != null) point.youtube = patch.youtube
-  out.push(point)
+  const prev = history.find((p) => p.day === day)
+  const values = { ...(prev?.values ?? {}) }
+  for (const [k, v] of Object.entries(patch) as [AccountKey, number | undefined][]) if (v != null) values[k] = v
+  out.push({ day, values })
   out.sort((a, b) => a.day.localeCompare(b.day))
   return out.slice(-HISTORY_DAYS)
 }
