@@ -17,7 +17,43 @@ export function compact(n: number | null | undefined): string {
   return `${(n / 1e9).toFixed(2).replace(/\.?0+$/, '')}B`
 }
 
-const full = (n: number) => n.toLocaleString()
+export const full = (n: number) => n.toLocaleString()
+
+/** A shortened number (62K) that shows the exact figure on hover. */
+export function Num({ v, unit, prefix = '' }: { v: number | null | undefined; unit?: string; prefix?: string }) {
+  const exact = v != null && Math.abs(v) >= 1000 ? `${prefix}${full(v)}${unit ? ` ${unit}` : ''}` : undefined
+  return (
+    <data value={v ?? undefined} className={exact ? 'num-exact' : undefined} data-exact={exact}>
+      {v != null ? prefix : ''}
+      {compact(v)}
+    </data>
+  )
+}
+
+/** One floating label for every <Num>, so it is never clipped by a card or table. */
+export function ExactNumberTip() {
+  const [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null)
+  useEffect(() => {
+    const over = (e: MouseEvent) => {
+      const el = (e.target as HTMLElement | null)?.closest?.('[data-exact]') as HTMLElement | null
+      if (!el) return setTip(null)
+      const r = el.getBoundingClientRect()
+      setTip({ x: r.left + r.width / 2, y: r.top, text: el.dataset.exact! })
+    }
+    const hide = () => setTip(null)
+    document.addEventListener('mouseover', over)
+    document.addEventListener('scroll', hide, true)
+    return () => {
+      document.removeEventListener('mouseover', over)
+      document.removeEventListener('scroll', hide, true)
+    }
+  }, [])
+  return tip ? (
+    <div className="exact-tip" style={{ left: tip.x, top: tip.y }}>
+      {tip.text}
+    </div>
+  ) : null
+}
 
 function dayDate(day: string): Date {
   const [y, m, d] = day.split('-').map(Number)
@@ -138,7 +174,9 @@ export default function ViewsTab() {
                 <div className="s">
                   {totalGain != null ? (
                     <>
-                      <Icon.TrendUp size={14} /> +{compact(totalGain)} in the last {range} days
+                      <Icon.TrendUp size={14} /> <span>
+                        <Num v={totalGain} prefix="+" unit="views" /> in the last {range} days
+                      </span>
                     </>
                   ) : (
                     'Growth appears here after Cadence has checked for a couple of days.'
@@ -211,7 +249,9 @@ function SplitRow({ mark, label, value, total, color }: { mark: React.ReactNode;
       <div className="row" style={{ gap: 8 }}>
         {mark}
         <span className="ellipsis grow">{label}</span>
-        <b>{compact(value)}</b>
+        <b>
+          <Num v={value} unit="views" />
+        </b>
       </div>
       <div className="split-bar">
         <span style={{ width: `${Math.max(share * 100, value ? 2 : 0)}%`, background: color }} />
@@ -269,15 +309,15 @@ function AccountCard(props: {
           </div>
         </div>
         {g != null && (
-          <span className="pill ok" title={`Views gained in the last ${props.range} days`}>
-            <Icon.TrendUp size={12} /> +{compact(g)}
+          <span className="pill ok">
+            <Icon.TrendUp size={12} /> <Num v={g} prefix="+" unit={`views gained in the last ${props.range} days`} />
           </span>
         )}
       </div>
 
       <div className="acct-total">
-        <div className="v" title={data?.totalViews != null ? full(data.totalViews) : undefined}>
-          {data ? compact(data.totalViews) : props.refreshing ? <Spinner /> : '—'}
+        <div className="v">
+          {data ? <Num v={data.totalViews} unit="views" /> : props.refreshing ? <Spinner /> : '—'}
         </div>
         <div className="faint">total views</div>
       </div>
@@ -286,15 +326,21 @@ function AccountCard(props: {
 
       <div className="acct-facts">
         <div>
-          <b>{compact(data?.followers)}</b>
+          <b>
+            <Num v={data?.followers} unit={props.followersLabel} />
+          </b>
           <span>{props.followersLabel}</span>
         </div>
         <div>
-          <b>{compact(data?.postCount)}</b>
+          <b>
+            <Num v={data?.postCount} unit={props.postsLabel} />
+          </b>
           <span>{props.postsLabel}</span>
         </div>
         <div>
-          <b>{compact(avg)}</b>
+          <b>
+            <Num v={avg} unit="views per post" />
+          </b>
           <span>avg views per post</span>
         </div>
       </div>
@@ -414,12 +460,22 @@ function TopList({ title, mark, items, loading }: { title: string; mark: React.R
               </div>
               <div className="faint meta">
                 {m.publishedAt && new Date(m.publishedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                {m.likes != null && ` · ${compact(m.likes)} likes`}
-                {m.comments != null && ` · ${compact(m.comments)} comments`}
+                {m.likes != null && (
+                  <>
+                    {' · '}
+                    <Num v={m.likes} unit="likes" /> likes
+                  </>
+                )}
+                {m.comments != null && (
+                  <>
+                    {' · '}
+                    <Num v={m.comments} unit="comments" /> comments
+                  </>
+                )}
               </div>
             </div>
-            <div className={cx('views')} title={m.views != null ? `${full(m.views)} views` : undefined}>
-              {compact(m.views)}
+            <div className={cx('views')}>
+              <Num v={m.views} unit="views" />
               <span>views</span>
             </div>
           </a>

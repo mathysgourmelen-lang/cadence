@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { ExactNumberTip } from './views/Views'
 import { useApp, type Route, isDemo } from './state'
 import { Icon, InstagramMark, Logo, YouTubeMark } from './icons'
 import { Avatar } from './ui'
@@ -51,6 +52,7 @@ export default function App() {
 
   return (
     <div className={cx('app', isDemo && 'demo')}>
+      <ExactNumberTip />
       <aside className="sidebar">
         <div className="brand">
           <Logo size={30} />

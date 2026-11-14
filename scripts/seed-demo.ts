@@ -146,37 +146,45 @@ async function add(file: string, when: string, cap: string, title: string, ig: P
     }
   })
   const titles = ['My 5am routine that actually stuck ☀️', 'Desk setup tour 2026 🖥️', 'Latte art in slow motion ☕️', 'Golden hour in Shibuya 🌆', 'Studio vlog #12 🎙️', 'Sunset from 120m up 🚁', '3 habits that changed my mornings', 'What I eat in a day', 'Room makeover in 30 seconds', 'Coffee shop tour, Tokyo']
-  const reels = titles.map((title, i) => {
-    const views = Math.round(400_000 / (i + 1.3) + 3000 * ((i * 7) % 5))
+  // 40 posts with a length pattern: 15-20 s does best, a minute or more does worst.
+  const LENS = [12, 17, 24, 8, 19, 35, 16, 52, 27, 14, 75, 18, 42, 22, 9, 17]
+  const lenBoost = (d: number) => (d >= 15 && d < 20 ? 1.9 : d < 10 ? 0.8 : d < 15 ? 1.2 : d < 30 ? 1 : d < 45 ? 0.7 : 0.45)
+  const lenWatch = (d: number) => (d < 10 ? 128 : d < 15 ? 96 : d < 20 ? 88 : d < 30 ? 71 : d < 45 ? 58 : 41)
+  const reels = Array.from({ length: 40 }, (_, i) => {
+    const title = titles[i % titles.length]
+    const dur = LENS[i % LENS.length]
+    const views = Math.round((90_000 - i * 1_200) * lenBoost(dur) * (0.75 + ((i * 37) % 11) / 20))
+    const watchPct = lenWatch(dur) * (0.9 + ((i * 13) % 5) / 25)
     return {
       id: `r${i}`,
       title,
       url: 'https://example.com',
       thumbnailUrl: t[i % 4],
-      publishedAt: new Date(Date.now() - (i * 3 + 1) * 86400_000).toISOString(),
+      publishedAt: new Date(Date.now() - (i * 2.5 + 1) * 86400_000).toISOString(),
       views,
       reach: Math.round(views * 0.71),
-      avgWatchSec: Math.round((5 + ((i * 13) % 9) + (i === 2 ? 6 : 0)) * 10) / 10,
-      totalWatchSec: Math.round(views * (6 + (i % 4))),
+      avgWatchSec: Math.round(((dur * watchPct) / 100) * 10) / 10,
+      totalWatchSec: Math.round((views * dur * watchPct) / 100),
       skipRate: Math.round((22 + ((i * 17) % 31)) * 10) / 10,
       likes: Math.round(views * 0.058),
       comments: Math.round(views * 0.004),
       shares: Math.round(views * 0.011),
       saves: Math.round(views * 0.016),
-      durationSec: i % 3 === 0 ? 27 : undefined,
+      durationSec: dur,
       viaCadence: i % 3 === 0 || undefined
     }
   })
-  const ytVideos = titles.map((title, i) => {
-    const views = Math.round(1_200_000 / (i + 1.1) + 9000 * ((i * 5) % 7))
-    const dur = [32, 45, 28, 58, 40, 22, 51, 35, 30, 44][i]
-    const pct = Math.round((68 + ((i * 23) % 52)) * 10) / 10
+  const ytVideos = Array.from({ length: 40 }, (_, i) => {
+    const title = titles[i % titles.length]
+    const dur = LENS[(i + 5) % LENS.length]
+    const views = Math.round((260_000 - i * 3_500) * lenBoost(dur) * (0.75 + ((i * 29) % 11) / 20))
+    const pct = Math.round(lenWatch(dur) * (0.92 + ((i * 7) % 5) / 30) * 10) / 10
     return {
       id: `vid${i}abcdef`,
       title,
       url: 'https://example.com',
       thumbnailUrl: t[(i + 1) % 4],
-      publishedAt: new Date(Date.now() - (i * 3 + 2) * 86400_000).toISOString(),
+      publishedAt: new Date(Date.now() - (i * 2.5 + 2) * 86400_000).toISOString(),
       durationSec: dur,
       views,
       engagedViews: Math.round(views * 0.62),

@@ -342,7 +342,7 @@ export interface ReelAnalytics {
   comments: number | null
   shares: number | null
   saves: number | null
-  /** Known only for reels posted through Cadence. */
+  /** From Cadence for its own posts, otherwise read from the video file. */
   durationSec?: number
   viaCadence?: boolean
 }

@@ -355,6 +355,7 @@ export class InstagramClient {
       timestamp: m.timestamp,
       permalink: m.permalink,
       thumbnailUrl: m.thumbnail_url ?? (m.media_type === 'VIDEO' ? undefined : m.media_url),
+      mediaUrl: m.media_type === 'VIDEO' ? m.media_url : undefined,
       likes: m.like_count,
       comments: m.comments_count,
       views: opts.insights ? insightValue(m.insights) : undefined
@@ -385,6 +386,8 @@ export interface IgMediaItem {
   timestamp?: string
   permalink?: string
   thumbnailUrl?: string
+  /** The video file (VIDEO media only); the link expires after a while. */
+  mediaUrl?: string
   likes?: number
   comments?: number
   /** undefined = not requested, null = not available for this post. */

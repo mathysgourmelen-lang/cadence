@@ -4,9 +4,10 @@
 import { ApiError } from './http'
 import type { InstagramClient, InstagramCredentials, IgMediaItem } from './instagram'
 import type { YouTubeClient, YouTubeTokens } from './youtube'
+import { remoteMp4Duration } from './remotemp4'
 import type { Post, ReelAnalytics, RetentionPoint, YtVideoAnalytics } from '../shared/types'
 
-export const IG_ANALYTICS_REELS = 30
+export const IG_ANALYTICS_REELS = 50
 export const YT_ANALYTICS_VIDEOS = 50
 
 /** Per-reel metrics, most useful first. Some are marked "in development" by Meta and may be refused. */
@@ -44,7 +45,10 @@ function isMetricError(err: unknown): boolean {
 export async function instagramAnalytics(
   client: InstagramClient,
   creds: InstagramCredentials,
-  posts: Post[]
+  posts: Post[],
+  /** Lengths already known from an earlier refresh, by reel id. */
+  knownDurations: Map<string, number> = new Map(),
+  probeDuration: (url: string) => Promise<number | null> = remoteMp4Duration
 ): Promise<{ reels: ReelAnalytics[]; unavailable: string[] }> {
   // Latest reels only; photos and carousels have no watch time.
   const reels: IgMediaItem[] = []
@@ -85,6 +89,25 @@ export async function instagramAnalytics(
     }
   })
 
+  // Instagram's API doesn't give a reel's length; read it from the video file's header.
+  const durations = new Map<string, number>()
+  for (const m of list) {
+    const d = byMedia.get(m.id)?.video.media.durationSec ?? knownDurations.get(m.id)
+    if (d) durations.set(m.id, d)
+  }
+  await pool(
+    list.filter((m) => !durations.has(m.id) && m.mediaUrl),
+    4,
+    async (m) => {
+      try {
+        const d = await probeDuration(m.mediaUrl!)
+        if (d) durations.set(m.id, Math.round(d * 10) / 10)
+      } catch {
+        // Leave the length unknown; the reel still shows everything else.
+      }
+    }
+  )
+
   const out = list.map((m): ReelAnalytics => {
     const v = values.get(m.id) ?? {}
     const post = byMedia.get(m.id)
@@ -103,7 +126,7 @@ export async function instagramAnalytics(
       comments: v.comments ?? m.comments ?? null,
       shares: v.shares ?? null,
       saves: v.saved ?? null,
-      durationSec: post?.video.media.durationSec,
+      durationSec: durations.get(m.id),
       viaCadence: post ? true : undefined
     }
   })

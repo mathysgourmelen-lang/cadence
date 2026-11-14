@@ -4,11 +4,12 @@ import { api, useApp } from '../state'
 import { Icon, InstagramMark, YouTubeMark } from '../icons'
 import { Avatar, Modal, Segmented, Spinner, useFeedback } from '../ui'
 import { cx, relative } from '../util'
-import { compact } from './Views'
+import { full, Num } from './Views'
 import { TRAFFIC_LABELS } from '../../../shared/traffic'
 import { accountKey, type ReelAnalytics, type RetentionPoint, type TimingSample, type YtVideoAnalytics } from '../../../shared/types'
 import { analyzeTiming, BLOCK_HOURS, BLOCKS, blockLabel, MIN_SAMPLES, suggestedTimes, type Bucket } from '../../../shared/bestTime'
 import { formatHHMM, timezoneName } from '../util'
+import { analyzeLength, lengthLabel, MIN_LENGTH_SAMPLES, shortLengthLabel, type LengthBand, type LengthSample } from '../../../shared/videoLength'
 
 type Platform = 'instagram' | 'youtube'
 
@@ -188,7 +189,7 @@ function ConnectCard({ name, onConnect }: { name: string; onConnect: () => void 
   )
 }
 
-function Kpi({ icon, label, value, sub, hint }: { icon: ReactNode; label: string; value: string; sub?: string; hint?: string }) {
+function Kpi({ icon, label, value, sub, hint }: { icon: ReactNode; label: string; value: ReactNode; sub?: string; hint?: string }) {
   return (
     <div className="card stat" title={hint}>
       <div className="k">
@@ -307,7 +308,7 @@ function Thumb({ src }: { src?: string }) {
 }
 
 /** A value with a thin bar underneath, for comparing a column at a glance. */
-function Meter({ value, max, text }: { value: number | null; max: number; text: string }) {
+function Meter({ value, max, text }: { value: number | null; max: number; text: ReactNode }) {
   return (
     <div className="meter">
       <span>{text}</span>
@@ -363,8 +364,8 @@ function InstagramPanel({
   const maxViews = Math.max(0, ...reels.map((r) => r.views ?? 0))
 
   const allCols: Col<ReelAnalytics>[] = [
-    { key: 'views', label: 'Views', value: (r) => r.views, render: (r) => <Meter value={r.views} max={maxViews} text={compact(r.views)} /> },
-    { key: 'reach', label: 'Reach', hint: 'Accounts that saw the reel at least once', value: (r) => r.reach, render: (r) => compact(r.reach) },
+    { key: 'views', label: 'Views', value: (r) => r.views, render: (r) => <Meter value={r.views} max={maxViews} text={<Num v={r.views} unit="views" />} /> },
+    { key: 'reach', label: 'Reach', hint: 'Accounts that saw the reel at least once', value: (r) => r.reach, render: (r) => <Num v={r.reach} unit="accounts reached" /> },
     { key: 'avgWatch', label: 'Avg watch', hint: 'Average time each play lasted', value: (r) => r.avgWatchSec, render: (r) => <Meter value={r.avgWatchSec} max={maxWatch} text={secs(r.avgWatchSec)} /> },
     {
       key: 'skip',
@@ -374,8 +375,8 @@ function InstagramPanel({
       render: (r) => <Meter value={r.skipRate} max={100} text={pct(r.skipRate)} />
     },
     { key: 'watch', label: 'Watch time', hint: 'Total time watched, including replays', value: (r) => r.totalWatchSec, render: (r) => hours(r.totalWatchSec) },
-    { key: 'shares', label: 'Shares', value: (r) => r.shares, render: (r) => compact(r.shares) },
-    { key: 'saves', label: 'Saves', value: (r) => r.saves, render: (r) => compact(r.saves) }
+    { key: 'shares', label: 'Shares', value: (r) => r.shares, render: (r) => <Num v={r.shares} unit="shares" /> },
+    { key: 'saves', label: 'Saves', value: (r) => r.saves, render: (r) => <Num v={r.saves} unit="saves" /> }
   ]
   const cols = allCols.filter((c) => !(c.key === 'skip' && unavailable.includes('reels_skip_rate')) && !(c.key === 'watch' && unavailable.includes('ig_reels_video_view_total_time')))
 
@@ -392,7 +393,7 @@ function InstagramPanel({
           hint="Lower is better. Strong hooks keep people past the first 3 seconds."
         />
         <Kpi icon={<Icon.Eye size={14} />} label="Total watch time" value={hours(total)} sub="including replays" />
-        <Kpi icon={<Icon.Share size={14} />} label="Shares · Saves" value={`${compact(shares)} · ${compact(saves)}`} sub="the strongest reach signals" />
+        <Kpi icon={<Icon.Share size={14} />} label="Shares · Saves" value={<><Num v={shares} unit="shares" /> · <Num v={saves} unit="saves" /></>} sub="the strongest reach signals" />
       </div>
 
       {(bestHook || longest) && (
@@ -415,6 +416,13 @@ function InstagramPanel({
       )}
 
       <BestTimeCard samples={timing} noun="reels" />
+      <LengthCard
+        noun="reels"
+        total={reels.length}
+        samples={reels
+          .filter((r) => r.durationSec && r.publishedAt && r.views != null)
+          .map((r) => ({ publishedAt: r.publishedAt!, durationSec: r.durationSec!, views: r.views!, watchedPct: r.avgWatchSec != null ? (r.avgWatchSec / r.durationSec!) * 100 : null }))}
+      />
 
       {unavailable.length > 0 && (
         <div className="notice" style={{ marginBottom: 16 }}>
@@ -476,16 +484,16 @@ function DetailHead({ title, date, thumb, url, onClose }: { title: string; date?
 
 function ReelDetail({ r, onClose }: { r: ReelAnalytics; onClose: () => void }) {
   const watchedShare = r.avgWatchSec != null && r.durationSec ? (r.avgWatchSec / r.durationSec) * 100 : null
-  const facts: [string, string, string?][] = [
-    ['Views', compact(r.views)],
-    ['Reach', compact(r.reach), 'Unique accounts'],
+  const facts: [string, ReactNode, string?][] = [
+    ['Views', <Num v={r.views} unit="views" />],
+    ['Reach', <Num v={r.reach} unit="accounts reached" />, 'Unique accounts'],
     ['Avg watch time', secs(r.avgWatchSec), r.durationSec ? `of ${secs(r.durationSec)}` : undefined],
     ['Skip rate', pct(r.skipRate), 'Left in the first 3 s'],
     ['Watch time', hours(r.totalWatchSec), 'Including replays'],
-    ['Likes', compact(r.likes)],
-    ['Comments', compact(r.comments)],
-    ['Shares', compact(r.shares)],
-    ['Saves', compact(r.saves)]
+    ['Likes', <Num v={r.likes} unit="likes" />],
+    ['Comments', <Num v={r.comments} unit="comments" />],
+    ['Shares', <Num v={r.shares} unit="shares" />],
+    ['Saves', <Num v={r.saves} unit="saves" />]
   ]
   return (
     <div className="an-detail">
@@ -566,13 +574,13 @@ function YouTubePanel({
   const trafficTotal = traffic.reduce((n, t) => n + t.views, 0)
 
   const allCols: Col<YtVideoAnalytics>[] = [
-    { key: 'views', label: 'Views', value: (v) => v.views, render: (v) => <Meter value={v.views} max={maxViews} text={compact(v.views)} /> },
+    { key: 'views', label: 'Views', value: (v) => v.views, render: (v) => <Meter value={v.views} max={maxViews} text={<Num v={v.views} unit="views" />} /> },
     {
       key: 'engaged',
       label: 'Engaged',
       hint: 'Engaged views: plays that went past the first moments (YouTube\'s older way of counting views)',
       value: (v) => v.engagedViews,
-      render: (v) => compact(v.engagedViews)
+      render: (v) => <Num v={v.engagedViews} unit="engaged views" />
     },
     {
       key: 'pct',
@@ -583,8 +591,8 @@ function YouTubePanel({
     },
     { key: 'dur', label: 'Avg duration', value: (v) => v.avgViewSec, render: (v) => secs(v.avgViewSec) },
     { key: 'watch', label: 'Watch time', value: (v) => v.watchMinutes, render: (v) => hours(v.watchMinutes != null ? v.watchMinutes * 60 : null) },
-    { key: 'likes', label: 'Likes', value: (v) => v.likes, render: (v) => compact(v.likes) },
-    { key: 'subs', label: 'Subs', hint: 'Subscribers gained from this video\'s page', value: (v) => v.subscribersGained, render: (v) => compact(v.subscribersGained) }
+    { key: 'likes', label: 'Likes', value: (v) => v.likes, render: (v) => <Num v={v.likes} unit="likes" /> },
+    { key: 'subs', label: 'Subs', hint: 'Subscribers gained from this video\'s page', value: (v) => v.subscribersGained, render: (v) => <Num v={v.subscribersGained} unit="subscribers" /> }
   ]
   const cols = allCols.filter((c) => c.key !== 'engaged' || videos.some((v) => v.engagedViews != null))
 
@@ -601,10 +609,17 @@ function YouTubePanel({
         />
         <Kpi icon={<Icon.Clock size={14} />} label="Avg view duration" value={secs(avgDur)} sub="per play" />
         <Kpi icon={<Icon.Chart size={14} />} label="Watch time" value={hours(minutes != null ? minutes * 60 : null)} sub="across these videos" />
-        <Kpi icon={<Icon.Users size={14} />} label="Subscribers gained" value={subs != null ? `+${compact(subs)}` : '—'} sub="from these videos" />
+        <Kpi icon={<Icon.Users size={14} />} label="Subscribers gained" value={subs != null ? <Num v={subs} prefix="+" unit="subscribers" /> : '—'} sub="from these videos" />
       </div>
 
       <BestTimeCard samples={timing} noun="Shorts" />
+      <LengthCard
+        noun="Shorts"
+        total={videos.length}
+        samples={videos
+          .filter((v) => v.durationSec && v.publishedAt)
+          .map((v) => ({ publishedAt: v.publishedAt!, durationSec: v.durationSec!, views: v.views, watchedPct: v.avgViewPct }))}
+      />
 
       {traffic.length > 0 && (
         <div className="card traffic">
@@ -659,16 +674,16 @@ function VideoDetail({ v, channelId, onClose }: { v: YtVideoAnalytics; channelId
     }
   }, [v.id, channelId])
   const rel = points ? avg(points.map((p) => p.relative)) : null
-  const facts: [string, string][] = [
-    ['Views', compact(v.views)],
-    ['Engaged views', compact(v.engagedViews)],
+  const facts: [string, ReactNode][] = [
+    ['Views', <Num v={v.views} unit="views" />],
+    ['Engaged views', <Num v={v.engagedViews} unit="engaged views" />],
     ['Avg % viewed', pct(v.avgViewPct)],
     ['Avg duration', `${secs(v.avgViewSec)}${v.durationSec ? ` of ${secs(v.durationSec)}` : ''}`],
     ['Watch time', hours(v.watchMinutes != null ? v.watchMinutes * 60 : null)],
-    ['Likes', compact(v.likes)],
-    ['Comments', compact(v.comments)],
-    ['Shares', compact(v.shares)],
-    ['Subscribers', v.subscribersGained != null ? `+${compact(v.subscribersGained)}` : '—']
+    ['Likes', <Num v={v.likes} unit="likes" />],
+    ['Comments', <Num v={v.comments} unit="comments" />],
+    ['Shares', <Num v={v.shares} unit="shares" />],
+    ['Subscribers', v.subscribersGained != null ? <Num v={v.subscribersGained} prefix="+" unit="subscribers" /> : '—']
   ]
   return (
     <div className="an-detail">
@@ -932,6 +947,133 @@ function BestTimeCard({ samples, noun }: { samples: TimingSample[]; noun: string
             <span>More views</span>
           </div>
         </div>
+      </div>
+      {tip && (
+        <div className="bt-tip" style={{ left: tip.x, top: tip.y }}>
+          {tip.text}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------- best video length ----------------
+
+function LengthCard({ samples, noun, total }: { samples: LengthSample[]; noun: string; total: number }) {
+  const a = useMemo(() => analyzeLength(samples), [samples])
+  const [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null)
+  const enough = a.n >= MIN_LENGTH_SAMPLES
+  const maxLog = Math.max(0.5, ...a.bands.map((b) => (b.lift ? Math.abs(Math.log2(b.lift)) : 0)))
+  const maxPct = Math.max(100, ...a.bands.map((b) => b.watchedPct ?? 0))
+  const isBest = (b: LengthBand) => enough && a.best?.from === b.from
+
+  const show = (e: React.MouseEvent, b: LengthBand) => {
+    const host = (e.currentTarget as HTMLElement).closest('.len-card')!.getBoundingClientRect()
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const parts = [lengthLabel(b), `${b.n} ${b.n === 1 ? noun.replace(/s$/, '') : noun}`]
+    if (b.lift != null) parts.push(liftText(b.lift))
+    if (b.watchedPct != null) parts.push(`${Math.round(b.watchedPct)}% watched`)
+    if (b.medianViews != null) parts.push(`typically ${full(b.medianViews)} views`)
+    setTip({ x: r.left - host.left + r.width / 2, y: r.top - host.top, text: b.n ? parts.join(' · ') : `${lengthLabel(b)} · no ${noun} yet` })
+  }
+
+  return (
+    <div className="card bt-card len-card" onMouseLeave={() => setTip(null)}>
+      <div className="bt-head">
+        <div>
+          <h3>Best video length</h3>
+          <div className="faint small">
+            From {a.n} {noun} older than 2 days
+            {samples.length < total && ` · length known for ${samples.length} of ${total}`}
+          </div>
+        </div>
+      </div>
+
+      <div className="bt-body">
+        <div className="bt-summary">
+          {!enough ? (
+            <p className="muted">
+              Cadence needs at least {MIN_LENGTH_SAMPLES} {noun} older than 2 days to compare lengths{a.n ? `, and has ${a.n} so far` : ''}. Try a few different lengths and check back.
+            </p>
+          ) : a.best ? (
+            <>
+              <div className="bt-eyebrow">Your sweet spot</div>
+              <div className="bt-big">{lengthLabel(a.best)}</div>
+              <div className="bt-lift">
+                {liftText(a.best.lift!)} <span className="faint">· {a.best.n} {noun}</span>
+              </div>
+              {a.best.watchedPct != null && (
+                <div className="bt-also">
+                  People watch <b>{Math.round(a.best.watchedPct)}%</b> of these on average.
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="muted">No length clearly beats the others yet. Your {noun} do about the same whatever their length.</p>
+          )}
+          {enough && a.mostWatched && a.mostWatched.from !== a.best?.from && (
+            <div className="bt-also">
+              Watched the most: <b>{lengthLabel(a.mostWatched)}</b> ({Math.round(a.mostWatched.watchedPct!)}% on average)
+            </div>
+          )}
+          {enough && a.worst && (
+            <div className="bt-also">
+              Weakest: <b>{lengthLabel(a.worst)}</b> ({liftText(a.worst.lift!)})
+            </div>
+          )}
+          <p className="bt-note">
+            Views are compared with the {noun} you posted around the same time, so a growing account doesn't skew the result. % watched can pass 100% when people rewatch.
+          </p>
+        </div>
+
+        {a.bands.length > 0 && (
+          <div className="len-chart" style={{ gridTemplateColumns: `92px repeat(${a.bands.length}, minmax(0, 1fr))` }}>
+            <span className="len-axis">
+              Views
+              <small>vs typical</small>
+            </span>
+            {a.bands.map((b) => {
+              const log = b.lift ? Math.log2(b.lift) : 0
+              const h = Math.max(b.n ? 3 : 0, (Math.abs(log) / maxLog) * 50)
+              return (
+                <span key={b.from} className={cx('len-col views', isBest(b) && 'best')} onMouseEnter={(e) => show(e, b)}>
+                  <span className="len-mid" />
+                  {b.n > 0 && <span className={cx('len-bar', log >= 0 ? 'up' : 'down')} style={log >= 0 ? { bottom: '50%', height: `${h}%` } : { top: '50%', height: `${h}%` }} />}
+                  {b.lift != null && (
+                    <span className="len-val" style={log >= 0 ? { bottom: `calc(50% + ${h}% + 3px)` } : { top: `calc(50% + ${h}% + 3px)` }}>
+                      {b.lift.toFixed(1)}×
+                    </span>
+                  )}
+                </span>
+              )
+            })}
+
+            <span className="len-axis">
+              Watched
+              <small>avg % of video</small>
+            </span>
+            {a.bands.map((b) => (
+              <span key={b.from} className={cx('len-col watched', isBest(b) && 'best')} onMouseEnter={(e) => show(e, b)}>
+                {b.watchedPct != null && (
+                  <>
+                    <span className="len-bar pct" style={{ height: `${(b.watchedPct / maxPct) * 78}%` }} />
+                    <span className="len-val" style={{ bottom: `calc(${(b.watchedPct / maxPct) * 78}% + 3px)` }}>
+                      {Math.round(b.watchedPct)}%
+                    </span>
+                  </>
+                )}
+              </span>
+            ))}
+
+            <span />
+            {a.bands.map((b) => (
+              <span key={b.from} className={cx('len-label', isBest(b) && 'best')}>
+                {shortLengthLabel(b)}
+                <small>{b.n ? `${b.n} ${b.n === 1 ? noun.replace(/s$/, '') : noun}` : '–'}</small>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       {tip && (
         <div className="bt-tip" style={{ left: tip.x, top: tip.y }}>

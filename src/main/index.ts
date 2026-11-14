@@ -410,7 +410,13 @@ function refreshAnalytics(): Promise<void> {
   analyticsRun = (async () => {
     store.setAnalytics({ refreshing: true })
     const results = await perAccount<IgAnalyticsData | YtAnalyticsData>(
-      (creds) => instagramAnalytics(instagram(), creds, store.posts),
+      (creds) =>
+        instagramAnalytics(
+          instagram(),
+          creds,
+          store.posts,
+          new Map((store.analytics.instagram[creds.igUserId]?.reels ?? []).filter((r) => r.durationSec).map((r) => [r.id, r.durationSec!]))
+        ),
       (tokens) => youtubeAnalytics(youtube, tokens, store.posts)
     )
     const cur = store.analytics

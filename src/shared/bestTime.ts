@@ -47,6 +47,21 @@ export interface BestTime {
   worstBlock?: BlockBucket
 }
 
+/**
+ * How each post did compared with the posts published around it: log2 of its views
+ * over the median of its 10 neighbours in time, clamped to ±3 (8x) so one viral post
+ * can't dominate. Input must be sorted oldest first.
+ */
+export function neighbourScores(posts: { views: number }[]): number[] {
+  return posts.map((p, i) => {
+    const from = Math.max(0, Math.min(i - NEIGHBOURS / 2, posts.length - NEIGHBOURS - 1))
+    const around = posts.slice(from, from + NEIGHBOURS + 1).filter((_, j) => from + j !== i).map((x) => x.views)
+    const typical = around.length ? median(around) : p.views
+    // +1 keeps zero-view posts finite.
+    return Math.max(-3, Math.min(3, Math.log2((p.views + 1) / (typical + 1))))
+  })
+}
+
 function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b)
   const m = s.length >> 1
@@ -72,12 +87,9 @@ export function analyzeTiming(samples: TimingSample[], now = Date.now()): BestTi
   const days: Acc[] = Array.from({ length: 7 }, () => ({ sum: 0, n: 0 }))
   const cells: Acc[][] = Array.from({ length: 7 }, () => Array.from({ length: BLOCKS }, () => ({ sum: 0, n: 0 })))
 
+  const scores = neighbourScores(posts)
   posts.forEach((p, i) => {
-    const from = Math.max(0, Math.min(i - NEIGHBOURS / 2, posts.length - NEIGHBOURS - 1))
-    const around = posts.slice(from, from + NEIGHBOURS + 1).filter((_, j) => from + j !== i).map((x) => x.views)
-    const typical = around.length ? median(around) : p.views
-    // +1 keeps zero-view posts finite; clamp to ±3 (8x) so one viral post can't dominate.
-    const score = Math.max(-3, Math.min(3, Math.log2((p.views + 1) / (typical + 1))))
+    const score = scores[i]
     const d = new Date(p.t)
     const b = Math.floor(d.getHours() / BLOCK_HOURS)
     for (const a of [blocks[b], days[d.getDay()], cells[d.getDay()][b]]) {
