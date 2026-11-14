@@ -16,7 +16,7 @@ export interface Cipher {
 }
 
 export interface Secrets {
-  instagram?: { accessToken: string; appSecret?: string }
+  instagram?: { accessToken: string; userToken?: string; appSecret?: string }
   youtube?: {
     clientSecret: string
     refreshToken?: string

@@ -52,7 +52,7 @@ let quitting = false
 let blockerId: number | null = null
 const youtube = new YouTubeClient()
 let pendingIgChoices: (InstagramPageChoice & { pageToken: string })[] = []
-let pendingIgApp: { appId: string; appSecret: string } | null = null
+let pendingIgApp: { appId: string; appSecret: string; userToken: string } | null = null
 
 const keychainCipher: Cipher = {
   encrypt: (s) => (safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(s) : Buffer.from(`plain:${s}`)),
@@ -301,7 +301,10 @@ async function checkAccounts(): Promise<void> {
   if (acc.instagram.connected && acc.instagram.igUserId && sec.instagram?.accessToken) {
     try {
       const prof = await instagram().getProfile({ igUserId: acc.instagram.igUserId, accessToken: sec.instagram.accessToken })
-      store.setAccounts({ instagram: { ...store.accounts.instagram, username: prof.username, profilePictureUrl: prof.profilePictureUrl, problem: undefined } })
+      const problem = sec.instagram.userToken
+        ? undefined
+        : 'Cadence 1.2.2 uploads reels with a different token. Click Disconnect, then connect Instagram again with a fresh token from Graph API Explorer.'
+      store.setAccounts({ instagram: { ...store.accounts.instagram, username: prof.username, profilePictureUrl: prof.profilePictureUrl, problem } })
     } catch (err) {
       if (err instanceof ApiError && err.opts.authError) store.setAccounts({ instagram: { ...store.accounts.instagram, problem: err.message } })
     }
@@ -479,7 +482,7 @@ function registerIpc(): void {
       )
     }
     pendingIgChoices = choices
-    pendingIgApp = { appId, appSecret }
+    pendingIgApp = { appId, appSecret, userToken: longToken }
     return choices.map(({ pageToken: _t, ...c }) => c)
   })
 
@@ -489,7 +492,7 @@ function registerIpc(): void {
     if (!c || !pendingIgApp) throw new PostError('Please start the connection again.')
     const creds: InstagramCredentials = { igUserId: c.igUserId, accessToken: c.pageToken }
     const prof = await instagram().getProfile(creds)
-    store.setSecrets({ instagram: { accessToken: c.pageToken, appSecret: pendingIgApp.appSecret } })
+    store.setSecrets({ instagram: { accessToken: c.pageToken, userToken: pendingIgApp.userToken, appSecret: pendingIgApp.appSecret } })
     store.setAccounts({
       instagram: {
         connected: true,

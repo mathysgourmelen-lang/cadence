@@ -94,6 +94,33 @@ describe('InstagramClient', () => {
     await expect(ig().uploadVideo(creds, `${base}/rup/x`, video, VIDEO_SIZE)).rejects.toMatchObject({ message: expect.stringContaining('Bad file'), retriable: false })
   })
 
+  it('uploads with the user token first and falls back to the Page token', async () => {
+    log.length = 0
+    handler = (r, res) =>
+      r.headers.authorization === 'OAuth USER_TOKEN'
+        ? json(res, 400, { debug_info: { retriable: false, type: 'ProcessingFailedError', message: 'Request processing failed' } })
+        : json(res, 200, { success: true, message: 'Upload successful.' })
+    await ig().uploadVideo({ ...creds, userToken: 'USER_TOKEN' }, `${base}/rup/x`, video, VIDEO_SIZE)
+    expect(log.map((r) => r.headers.authorization)).toEqual(['OAuth USER_TOKEN', 'OAuth PAGE_TOKEN'])
+    expect(log[1].body.equals(bytes)).toBe(true)
+  })
+
+  it('shows the inner rupload error message', async () => {
+    handler = (_r, res) =>
+      json(res, 400, { debug_info: { retriable: false, type: 'ProcessingFailedError', message: '{"success":false,"error":{"message":"unauthorized user request"}}' } })
+    await expect(ig().uploadVideo(creds, `${base}/rup/x`, video, VIDEO_SIZE)).rejects.toMatchObject({
+      message: 'Instagram upload failed: unauthorized user request',
+      opts: expect.objectContaining({ authError: true })
+    })
+  })
+
+  it('creates the container with the user token when there is one', async () => {
+    log.length = 0
+    handler = (_r, res) => json(res, 200, { id: 'C3' })
+    await ig().createReelContainer({ ...creds, userToken: 'USER_TOKEN' }, { caption: '', shareToFeed: true, coverOffsetMs: null })
+    expect(new URLSearchParams(log[0].body.toString()).get('access_token')).toBe('USER_TOKEN')
+  })
+
   it('reads container status and publishes', async () => {
     handler = (r, res) => {
       if (r.url.pathname === '/v24.0/C1') return json(res, 200, { status_code: 'FINISHED', status: 'Finished: Media has been uploaded' })

@@ -208,7 +208,7 @@ export class Scheduler {
     if (!acc.connected || !acc.igUserId || !sec?.accessToken) {
       throw new ApiError('Instagram is not connected. Connect it in Accounts, then retry.', { retriable: false, authError: true })
     }
-    return { igUserId: acc.igUserId, accessToken: sec.accessToken }
+    return { igUserId: acc.igUserId, accessToken: sec.accessToken, userToken: sec.userToken }
   }
 
   private async igPrepare(postId: string): Promise<void> {

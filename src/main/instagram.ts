@@ -5,6 +5,7 @@
 // Flow: create a REELS container with upload_type=resumable -> upload bytes to
 // rupload.facebook.com -> poll status_code until FINISHED -> media_publish.
 
+import { readFile } from 'node:fs/promises'
 import { ApiError, fetchWithTimeout, fileBody, readJson } from './http'
 import type { InstagramPageChoice } from '../shared/types'
 
@@ -12,7 +13,30 @@ export interface InstagramCredentials {
   igUserId: string
   /** Page access token (does not expire when derived from a long-lived user token). */
   accessToken: string
+  /** Long-lived user token (60 days). Meta's upload host (rupload) expects this one. */
+  userToken?: string
 }
+
+/** Tokens to try for the publishing flow, user token first, as Meta's upload docs specify. */
+function publishTokens(creds: InstagramCredentials): string[] {
+  return [...new Set([creds.userToken, creds.accessToken].filter((t): t is string => !!t))]
+}
+
+/** rupload wraps the real error as JSON inside debug_info.message; pull out the readable part. */
+function ruploadMessage(info: any): string {
+  const raw = String(info?.message ?? '')
+  try {
+    const inner = JSON.parse(raw)
+    const m = inner?.error?.message ?? inner?.message
+    if (m) return String(m)
+  } catch {
+    /* not JSON */
+  }
+  return raw || info?.type || 'unknown error'
+}
+
+/** Small enough to send in one buffer (avoids any chunked-encoding surprises on Meta's side). */
+const BUFFER_UPLOAD_MAX = 512 * 1024 * 1024
 
 export interface InstagramEndpoints {
   graph: string // e.g. https://graph.facebook.com
@@ -174,19 +198,30 @@ export class InstagramClient {
     creds: InstagramCredentials,
     opts: { caption: string; shareToFeed: boolean; coverOffsetMs: number | null }
   ): Promise<{ id: string; uploadUri: string }> {
-    const body = await this.post(
-      `${creds.igUserId}/media`,
-      {
-        media_type: 'REELS',
-        upload_type: 'resumable',
-        caption: opts.caption,
-        share_to_feed: opts.shareToFeed,
-        thumb_offset: opts.coverOffsetMs != null ? Math.max(0, Math.round(opts.coverOffsetMs)) : undefined,
-        access_token: creds.accessToken
-      },
-      'Instagram rejected the post'
-    )
-    if (!body.id) throw new ApiError('Instagram did not return a container id.', { retriable: true, raw: body })
+    const tokens = publishTokens(creds)
+    let body: any
+    for (let i = 0; i < tokens.length; i++) {
+      try {
+        body = await this.post(
+          `${creds.igUserId}/media`,
+          {
+            media_type: 'REELS',
+            upload_type: 'resumable',
+            caption: opts.caption,
+            share_to_feed: opts.shareToFeed,
+            thumb_offset: opts.coverOffsetMs != null ? Math.max(0, Math.round(opts.coverOffsetMs)) : undefined,
+            access_token: tokens[i]
+          },
+          'Instagram rejected the post'
+        )
+        break
+      } catch (err) {
+        // An expired user token: carry on with the Page token.
+        if (i < tokens.length - 1 && err instanceof ApiError && err.opts.authError) continue
+        throw err
+      }
+    }
+    if (!body?.id) throw new ApiError('Instagram did not return a container id.', { retriable: true, raw: body })
     const uploadUri: string = body.uri || `${this.endpoints.rupload}/ig-api-upload/${this.version}/${body.id}`
     return { id: String(body.id), uploadUri }
   }
@@ -198,31 +233,61 @@ export class InstagramClient {
     size: number,
     onProgress?: (fraction: number) => void
   ): Promise<void> {
+    const tokens = publishTokens(creds)
+    let lastErr: unknown
+    for (let i = 0; i < tokens.length; i++) {
+      try {
+        await this.uploadOnce(tokens[i], uploadUri, filePath, size, onProgress)
+        return
+      } catch (err) {
+        lastErr = err
+        // rupload answers a token it doesn't accept with a generic ProcessingFailedError; try the other token.
+        if (!(err instanceof ApiError) || i === tokens.length - 1) throw err
+        if (!(err.opts.authError || err.opts.code === 'ProcessingFailedError')) throw err
+      }
+    }
+    throw lastErr
+  }
+
+  private async uploadOnce(token: string, uploadUri: string, filePath: string, size: number, onProgress?: (fraction: number) => void): Promise<void> {
+    let body: any
+    if (size <= BUFFER_UPLOAD_MAX) {
+      const buf = await readFile(filePath)
+      if (buf.length !== size) throw new ApiError('The video file changed size since it was added. Add it again.', { retriable: false })
+      body = buf
+    } else {
+      body = fileBody(filePath, 0, size, (sent) => onProgress?.(sent / size))
+    }
     const res = await fetchWithTimeout(uploadUri, {
       method: 'POST',
       timeoutMs: 60 * 60 * 1000,
       headers: {
-        Authorization: `OAuth ${creds.accessToken}`,
+        Authorization: `OAuth ${token}`,
         offset: '0',
         file_size: String(size),
         'Content-Type': 'application/octet-stream',
         'Content-Length': String(size)
       },
-      body: fileBody(filePath, 0, size, (sent) => onProgress?.(sent / size)) as any,
+      body,
       duplex: 'half'
     } as RequestInit & { duplex: 'half' })
-    const body = await readJson(res)
-    if (!res.ok || body?.success === false || body?.error || body?.debug_info) {
-      const info = body?.debug_info
+    const json = await readJson(res)
+    if (!res.ok || json?.success === false || json?.error || json?.debug_info) {
+      const info = json?.debug_info
       if (info) {
-        throw new ApiError(`Instagram upload failed: ${info.message || info.type || 'unknown error'}`, {
+        const msg = ruploadMessage(info)
+        const unauthorized = /unauthori[sz]ed|permission|token/i.test(msg)
+        throw new ApiError(`Instagram upload failed: ${msg}`, {
           status: res.status,
           retriable: info.retriable !== false,
-          raw: body
+          code: info.type,
+          authError: unauthorized || undefined,
+          raw: json
         })
       }
-      throw graphError(res.status, body, 'Instagram upload failed')
+      throw graphError(res.status, json, 'Instagram upload failed')
     }
+    onProgress?.(1)
   }
 
   async containerStatus(creds: InstagramCredentials, containerId: string): Promise<{ statusCode: ContainerStatus; status?: string }> {
