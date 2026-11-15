@@ -15,8 +15,12 @@ import Guide from './views/Guide'
 import Library from './views/Library'
 import ViewsTab from './views/Views'
 import Analytics from './views/Analytics'
+import TodayView from './views/Today'
+import { calendarItems } from '../../shared/calendar'
+import { useMemo } from 'react'
 
 const NAV: { route: Route; label: string; icon: (p: { size?: number }) => ReactNode }[] = [
+  { route: 'today', label: 'Today', icon: Icon.Check },
   { route: 'library', label: 'Library', icon: Icon.Library },
   { route: 'queue', label: 'Queue', icon: Icon.Queue },
   { route: 'calendar', label: 'Calendar', icon: Icon.Calendar },
@@ -33,6 +37,7 @@ const SETUP: { route: Route; label: string; icon: (p: { size?: number }) => Reac
 
 export default function App() {
   const { snap, route, go, now } = useApp()
+  const notPosted = useNotPostedToday()
   if (!snap) return <div className="app" />
 
   const upcoming = snap.posts.filter(isUpcoming)
@@ -74,6 +79,7 @@ export default function App() {
             <button key={n.route} className={cx('nav-item', route === n.route && 'active')} onClick={() => go(n.route)}>
               <n.icon size={18} /> {n.label}
               {n.route === 'queue' && upcoming.length > 0 && <span className="badge">{upcoming.length}</span>}
+              {n.route === 'today' && notPosted != null && <span className={cx('badge', notPosted > 0 ? 'no' : 'done')}>{notPosted > 0 ? notPosted : <Icon.Check size={11} />}</span>}
               {n.route === 'history' && failed.length > 0 && <span className="badge hot">{failed.length}</span>}
             </button>
           ))}
@@ -121,6 +127,7 @@ export default function App() {
 
       <main className="main">
         {route === 'compose' && <Compose />}
+        {route === 'today' && <TodayView />}
         {route === 'library' && <Library />}
         {route === 'queue' && <Queue />}
         {route === 'views' && <ViewsTab />}
@@ -144,4 +151,27 @@ export function Topbar({ title, subtitle, children }: { title: string; subtitle?
       {children}
     </header>
   )
+}
+
+/** How many connected accounts have no post live today (null when none are connected). */
+function useNotPostedToday(): number | null {
+  const { snap, now } = useApp()
+  const day = new Date(now).toDateString()
+  return useMemo(() => {
+    const s = snap
+    if (!s) return null
+    const keys = [...s.accounts.instagram.map((a) => `instagram:${a.id}`), ...s.accounts.youtube.map((a) => `youtube:${a.id}`)]
+    if (!keys.length) return null
+    const posted = new Set<string>()
+    for (const it of calendarItems(s.posts, s.insights, s.analytics)) {
+      if (it.kind === 'outside') {
+        if (new Date(it.at).toDateString() === day) posted.add(`${it.item.platform}:${it.item.accountId}`)
+        continue
+      }
+      for (const [platform, t] of [['instagram', it.post.instagram], ['youtube', it.post.youtube]] as const) {
+        if (t.enabled && t.state === 'published' && t.accountId && new Date(t.publishedAt ?? it.at).toDateString() === day) posted.add(`${platform}:${t.accountId}`)
+      }
+    }
+    return keys.filter((k) => !posted.has(k)).length
+  }, [snap, day])
 }

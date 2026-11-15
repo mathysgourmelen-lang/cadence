@@ -2227,6 +2227,106 @@ input[type='range']::-webkit-slider-thumb {
   flex: none;
 }
 
+/* ============ Today ============ */
+
+.today-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.today-card {
+  padding: 0 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
+}
+
+.today-card.ok {
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+}
+
+.today-card.no {
+  border-color: color-mix(in srgb, var(--err) 45%, transparent);
+}
+
+.today-tab {
+  margin: 0 -18px;
+  padding: 9px 18px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 680;
+  font-size: 12.5px;
+  color: #fff;
+}
+
+.today-card.ok .today-tab {
+  background: var(--ok);
+}
+
+.today-card.no .today-tab {
+  background: var(--err);
+}
+
+.today-name {
+  font-weight: 650;
+  font-size: 15px;
+}
+
+.today-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.today-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  text-align: left;
+  cursor: pointer;
+  font-size: 12.5px;
+  min-width: 0;
+}
+
+.today-entry:hover {
+  border-color: var(--border-strong);
+}
+
+.today-entry .t {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  flex: none;
+}
+
+.today-entry:not(.done) {
+  border-style: dashed;
+  background: transparent;
+}
+
+.today-none {
+  padding: 4px 2px;
+}
+
+.nav-item .badge.no {
+  background: var(--err);
+  color: #fff;
+}
+
+.nav-item .badge.done {
+  background: var(--ok);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+
 /* ============ Accounts & settings ============ */
 
 .accounts-grid {

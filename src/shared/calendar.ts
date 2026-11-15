@@ -60,3 +60,4 @@ export function calendarItems(posts: Post[], insights?: InsightsState, analytics
 
   return items.sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
 }
+

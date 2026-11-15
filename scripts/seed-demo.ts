@@ -95,6 +95,7 @@ async function add(file: string, when: string, cap: string, title: string, ig: P
     viaCadence: via || undefined
   })
   const igTop = [
+    m('i0', 'Morning coffee ritual ☕️', 8_420, 0.04, t[2]),
     m('i1', 'My 5am routine that actually stuck ☀️', 412_380, 9, t[0], true),
     m('i2', 'Desk setup tour 2026, everything linked in bio 🖥️', 188_940, 21, t[1]),
     m('i3', 'Latte art in slow motion never gets old ☕️', 96_410, 3, t[2], true),
@@ -102,6 +103,7 @@ async function add(file: string, when: string, cap: string, title: string, ig: P
     m('i5', 'Studio vlog #12 🎙️', 21_870, 1, t[0], true)
   ]
   const ytTop = [
+    m('y0', 'One-minute desk reset', 12_960, 0.06, t[1]),
     m('y1', 'My 5am routine that actually stuck ☀️', 1_204_330, 9, t[0], true),
     m('y2', 'Golden hour in Shibuya', 342_515, 30, t[3]),
     m('y3', 'Desk setup tour 2026 🖥️', 120_204, 21, t[1]),
@@ -125,7 +127,7 @@ async function add(file: string, when: string, cap: string, title: string, ig: P
     })
   }
   const k = (p: 'instagram' | 'youtube', id: string) => `${p}:${id}` as const
-  const scale = <T extends { id: string; views: number }>(xs: T[], f: number) => xs.map((x) => ({ ...x, id: `${x.id}b`, views: Math.round(x.views * f) }))
+  const scale = <T extends { id: string; views: number }>(xs: T[], f: number) => xs.filter((x) => !/^[iy]0$/.test(x.id) || x.id === 'i0').map((x) => ({ ...x, id: `${x.id}b`, views: Math.round(x.views * f) }))
   store.setInsights({
     refreshing: false,
     errors: {},

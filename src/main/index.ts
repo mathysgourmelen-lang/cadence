@@ -253,6 +253,7 @@ function buildMenu(): void {
       label: 'View',
       submenu: [
         { label: 'Compose', accelerator: 'Cmd+1', click: () => showWindow('compose') },
+        { label: 'Today', accelerator: 'Cmd+0', click: () => showWindow('today') },
         { label: 'Library', accelerator: 'Cmd+2', click: () => showWindow('library') },
         { label: 'Queue', accelerator: 'Cmd+3', click: () => showWindow('queue') },
         { label: 'Calendar', accelerator: 'Cmd+4', click: () => showWindow('calendar') },
