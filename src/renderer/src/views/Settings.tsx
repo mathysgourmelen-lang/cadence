@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { Topbar } from '../App'
 import { api, useApp } from '../state'
 import { Icon, InstagramMark, YouTubeMark } from '../icons'
 import { Segmented, ToggleRow, useFeedback } from '../ui'
-import { formatHHMM, uid } from '../util'
+import { THEMES } from '../../../shared/themes'
+import { cx, formatHHMM, uid } from '../util'
 import type { Settings } from '../../../shared/types'
 import { YOUTUBE_CATEGORIES } from '../../../shared/defaults'
 
@@ -22,24 +23,50 @@ export default function SettingsView() {
       <Topbar title="Settings" subtitle={`Cadence ${snap!.version}`} />
       <div className="page">
         <div className="settings-grid">
+          <div className="card card-pad theme-card">
+            <div className="section-title">
+              <Icon.Sparkle size={17} /> Theme
+            </div>
+            <div className="theme-grid" role="radiogroup" aria-label="Theme">
+              {THEMES.map((t) => {
+                const on = s.appearance === t.value
+                return (
+                  <button
+                    key={t.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    className={cx('theme-tile', on && 'on')}
+                    onClick={() => set({ appearance: t.value })}
+                  >
+                    <span
+                      className="theme-swatch"
+                      aria-hidden
+                      style={{ '--sw-bg': t.swatch.bg, '--sw-side': t.swatch.side, '--sw-card': t.swatch.card, '--sw-text': t.swatch.text, '--sw-accent': t.swatch.accent } as CSSProperties}
+                    >
+                      <i className="sw-side" />
+                      <i className="sw-card">
+                        <i className="sw-line" />
+                        <i className="sw-line short" />
+                        <i className="sw-pill" />
+                      </i>
+                      {on && (
+                        <span className="sw-check">
+                          <Icon.Check size={11} />
+                        </span>
+                      )}
+                    </span>
+                    <span className="theme-name">{t.label}</span>
+                    <span className="theme-desc">{t.desc}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           <div className="card card-pad">
             <div className="section-title">
               <Icon.Settings size={17} /> General
-            </div>
-            <div className="toggle-row" style={{ paddingTop: 0 }}>
-              <div className="text">
-                <div className="title">Appearance</div>
-              </div>
-              <Segmented
-                value={s.appearance}
-                onChange={(v) => set({ appearance: v })}
-                options={[
-                  { value: 'system', label: 'Auto' },
-                  { value: 'light', label: 'Light' },
-                  { value: 'dark', label: 'Dark' },
-                  { value: 'prism', label: 'Prism' }
-                ]}
-              />
             </div>
             <ToggleRow title="Open at login" desc="Starts quietly in the menu bar, so scheduled posts go out after a restart." on={s.launchAtLogin} onChange={(v) => set({ launchAtLogin: v })} />
             <ToggleRow title="Keep Mac awake before posts" desc="Stops idle sleep while uploads run or a post is due soon. A closed lid still sleeps." on={s.keepAwake} onChange={(v) => set({ keepAwake: v })} />

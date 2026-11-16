@@ -48,7 +48,7 @@ export function Avatar({ src, name, size = 28 }: { src?: string; name?: string; 
   const initials = (name ?? '?').replace(/^@/, '').slice(0, 1).toUpperCase()
   if (src && !broken) return <img className="avatar" src={src} width={size} height={size} style={{ width: size, height: size }} onError={() => setBroken(true)} alt="" />
   return (
-    <div className="avatar" style={{ width: size, height: size, fontSize: size * 0.42, background: 'var(--brand)' }}>
+    <div className="avatar" style={{ width: size, height: size, fontSize: size * 0.42, background: 'var(--brand)', color: 'var(--on-brand)' }}>
       {initials}
     </div>
   )

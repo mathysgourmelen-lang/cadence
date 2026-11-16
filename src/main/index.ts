@@ -46,6 +46,7 @@ import {
   type ReplaySource
 } from '../shared/types'
 import { isUpcoming } from '../shared/status'
+import { themeInfo } from '../shared/themes'
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL
 
@@ -284,7 +285,7 @@ function broadcast(): void {
 }
 
 function applyAppearance(s: Settings): void {
-  nativeTheme.themeSource = s.appearance === 'prism' ? 'dark' : s.appearance
+  nativeTheme.themeSource = themeInfo(s.appearance).native
 }
 
 function applyLoginItem(s: Settings): void {

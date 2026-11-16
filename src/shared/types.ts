@@ -1,4 +1,5 @@
 // Types shared by the main process, the preload bridge and the UI.
+import type { Appearance } from './themes'
 
 export type Platform = 'instagram' | 'youtube'
 
@@ -135,7 +136,7 @@ export type PostStatus =
   | 'canceled'
 
 export interface Settings {
-  appearance: 'system' | 'dark' | 'light' | 'prism'
+  appearance: Appearance
   launchAtLogin: boolean
   keepAwake: boolean
   /** Minutes before the publish time to upload Instagram videos so they post on time. */
