@@ -39,6 +39,9 @@ jobs:
         run: npm run dist
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # electron-builder skips signing on pull requests by default, which leaves the bundle
+          # unsigned and fails the verify step. The identity is ad-hoc ("-"), so no secrets are involved.
+          CSC_FOR_PULL_REQUEST: 'true'
       - name: Verify the app bundle
         run: |
           ls -la dist
