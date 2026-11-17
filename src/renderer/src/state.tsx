@@ -80,13 +80,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Apply the appearance to the document. Auto resolves to light or dark; every other choice is its own theme.
+  // Apply appearance (light/dark/prism/system) to the document.
   useEffect(() => {
     if (!snap) return
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const apply = () => {
       const mode = snap.settings.appearance
-      document.documentElement.dataset.theme = mode === 'system' ? (mq.matches ? 'dark' : 'light') : mode
+      const dark = mode === 'dark' || (mode === 'system' && mq.matches)
+      document.documentElement.dataset.theme = mode === 'prism' ? 'prism' : dark ? 'dark' : 'light'
     }
     apply()
     mq.addEventListener('change', apply)
