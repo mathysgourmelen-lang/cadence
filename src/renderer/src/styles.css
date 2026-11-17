@@ -4032,3 +4032,186 @@ button.link {
     max-width: 240px;
   }
 }
+
+/* ---------- Overview: every stat on one graph ---------- */
+:root {
+  --ov-views: #ff4f8b;
+  --ov-posts: rgba(160, 160, 180, 0.38);
+  --ov-likes: #ff8a5c;
+  --ov-comments: #5b8cff;
+  --ov-shares: #3ddc97;
+  --ov-saves: #f5c542;
+  --ov-watch: #a585ff;
+  --ov-subs: #36d6d0;
+}
+:root[data-theme='light'] {
+  --ov-views: #e6346f;
+  --ov-posts: rgba(60, 60, 80, 0.2);
+  --ov-likes: #e0662f;
+  --ov-comments: #2b5fd9;
+  --ov-shares: #12a26a;
+  --ov-saves: #c08a0a;
+  --ov-watch: #7a55e0;
+  --ov-subs: #0f9a96;
+}
+.ov-card {
+  padding: 18px 20px 14px;
+}
+.ov-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.ov-head h3 {
+  margin: 0 0 2px;
+}
+.ov-sub {
+  font-size: 12.5px;
+}
+.ov-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.ov-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.ov-chip:hover {
+  border-color: var(--border-strong);
+}
+.ov-chip.on {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: color-mix(in srgb, var(--c) 45%, var(--border));
+}
+.ov-chip b {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.ov-chip:not(.on) b {
+  font-weight: 500;
+}
+.ov-key {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--c);
+  opacity: 0.35;
+}
+.ov-key.bar {
+  width: 8px;
+  height: 11px;
+}
+.ov-chip.on .ov-key {
+  opacity: 1;
+}
+.ov-plot {
+  position: relative;
+  height: 380px;
+}
+.ov-plot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.ov-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+.ov-bar {
+  fill: var(--ov-posts);
+}
+.ov-tip {
+  position: absolute;
+  top: 6px;
+  transform: translateX(14px);
+  min-width: 190px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--popover);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-pop);
+  font-size: 12.5px;
+  pointer-events: none;
+  z-index: 3;
+}
+.ov-tip.left {
+  transform: translateX(calc(-100% - 14px));
+}
+.ov-tip-day {
+  font-weight: 650;
+  margin-bottom: 6px;
+}
+.ov-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.ov-tip-row i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.ov-tip-row span {
+  flex: 1;
+  color: var(--text-2);
+}
+.ov-tip-row b {
+  font-variant-numeric: tabular-nums;
+}
+.ov-axis {
+  position: relative;
+  height: 22px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.ov-axis span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.ov-axis span:first-child {
+  transform: none;
+}
+.ov-axis span:last-child {
+  transform: translateX(-100%);
+}
+.ov-foot {
+  margin-top: 6px;
+  font-size: 12px;
+}
+.ov-empty {
+  padding: 40px 0;
+  text-align: center;
+}
+.ov-tip-row.none {
+  opacity: 0.5;
+}
+.ov-tip-note {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.ov-line {
+  transition: opacity 0.15s;
+}
