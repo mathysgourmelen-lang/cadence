@@ -16,6 +16,7 @@ import Library from './views/Library'
 import ViewsTab from './views/Views'
 import Analytics from './views/Analytics'
 import TodayView from './views/Today'
+import OverviewTab from './views/Overview'
 import { calendarItems } from '../../shared/calendar'
 import { useMemo } from 'react'
 
@@ -32,7 +33,7 @@ const NAV: { route: Route; label: string; icon: (p: { size?: number }) => ReactN
 const SETUP: { route: Route; label: string; icon: (p: { size?: number }) => ReactNode }[] = [
   { route: 'accounts', label: 'Accounts', icon: Icon.Accounts },
   { route: 'settings', label: 'Settings', icon: Icon.Settings },
-  { route: 'guide', label: 'Setup Guide', icon: Icon.Guide }
+  { route: 'overview', label: 'Overview', icon: Icon.TrendUp }
 ]
 
 export default function App() {
@@ -136,6 +137,7 @@ export default function App() {
         {route === 'history' && <History />}
         {route === 'accounts' && <Accounts />}
         {route === 'settings' && <SettingsView />}
+        {route === 'overview' && <OverviewTab />}
         {route === 'guide' && <Guide />}
       </main>
     </div>
