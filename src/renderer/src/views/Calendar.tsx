@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import { Topbar } from '../App'
 import { api, useApp } from '../state'
 import { Icon, InstagramMark, YouTubeMark } from '../icons'
-import { useFeedback } from '../ui'
+import { Modal, useFeedback } from '../ui'
 import { accountLabel, addDays, cx, sameDay, startOfDay, timeLabel } from '../util'
 import type { Post } from '../../../shared/types'
 import { isEditable, postStatus } from '../../../shared/status'
@@ -17,6 +17,7 @@ export default function CalendarView() {
     return new Date(n.getFullYear(), n.getMonth(), 1)
   })
   const [dropDay, setDropDay] = useState<string | null>(null)
+  const [openDay, setOpenDay] = useState<Date | null>(null)
 
   const byDay = useMemo(() => {
     const m = new Map<string, CalendarItem[]>()
@@ -152,14 +153,127 @@ export default function CalendarView() {
                     </div>
                   )
                 })}
-                {list.length > 4 && <div className="faint small" style={{ paddingLeft: 4 }}>+{list.length - 4} more</div>}
+                {list.length > 4 && (
+                  <button className="cal-more" onClick={() => setOpenDay(d)} aria-label={`Show all ${list.length} posts on ${d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}`}>
+                    +{list.length - 4} more
+                  </button>
+                )}
               </div>
             )
           })}
         </div>
       </div>
+      <Modal open={!!openDay} onClose={() => setOpenDay(null)} width={560}>
+        {openDay && (
+          <DayList
+            day={openDay}
+            items={byDay.get(dayKey(openDay)) ?? []}
+            onClose={() => setOpenDay(null)}
+            onOpen={(p) => {
+              setOpenDay(null)
+              const st = postStatus(p)
+              go(st === 'published' || st === 'failed' || st === 'partial' ? 'history' : 'queue', { highlight: p.id })
+            }}
+            onEdit={(p) => {
+              setOpenDay(null)
+              go('compose', { compose: { postId: p.id } })
+            }}
+            onNew={
+              startOfDay(openDay) >= startOfDay(today)
+                ? () => {
+                    setOpenDay(null)
+                    go('compose', { compose: { date: openDay.toISOString(), pick: true } })
+                  }
+                : undefined
+            }
+          />
+        )}
+      </Modal>
     </>
   )
+}
+
+const STATUS_TEXT: Record<string, string> = {
+  published: 'Posted',
+  failed: 'Failed',
+  partial: 'Partly posted',
+  missed: 'Missed',
+  scheduled: 'Scheduled',
+  in_progress: 'Posting',
+  draft: 'Draft',
+  canceled: 'Canceled'
+}
+
+/** Every post on one day, opened from "+N more". */
+function DayList({ day, items, onClose, onOpen, onEdit, onNew }: { day: Date; items: CalendarItem[]; onClose: () => void; onOpen: (p: Post) => void; onEdit: (p: Post) => void; onNew?: () => void }) {
+  const { snap } = useApp()
+  const sorted = [...items].sort((a, b) => a.at.localeCompare(b.at))
+  return (
+    <>
+      <h2>{day.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
+      <p className="muted small" style={{ marginTop: 0 }}>
+        {items.length} posts. Click one to open it.
+      </p>
+      <div className="day-list">
+        {sorted.map((it) => {
+          if (it.kind === 'outside') {
+            const o = it.item
+            return (
+              <button key={o.key} className="day-row" onClick={() => o.url && void api.openExternal(o.url)} disabled={!o.url}>
+                <DayThumb src={o.thumbnailUrl} remote />
+                <span className="day-time">{timeLabel(new Date(o.at))}</span>
+                <span className="day-main">
+                  <span className="ellipsis day-title">{o.title || 'Untitled'}</span>
+                  <span className="ellipsis faint day-sub">
+                    {o.platform === 'instagram' ? <InstagramMark size={12} /> : <YouTubeMark size={12} />} {accountLabel(snap!.accounts, o.platform, o.accountId)} · posted in the {o.platform === 'instagram' ? 'Instagram' : 'YouTube'} app
+                  </span>
+                </span>
+                <span className="pill ok">Posted</span>
+              </button>
+            )
+          }
+          const p = it.post
+          const st = postStatus(p)
+          const where = [
+            p.instagram.enabled && { mark: <InstagramMark key="i" size={12} />, label: accountLabel(snap!.accounts, 'instagram', p.instagram.accountId) },
+            p.youtube.enabled && { mark: <YouTubeMark key="y" size={12} />, label: accountLabel(snap!.accounts, 'youtube', p.youtube.accountId) }
+          ].filter(Boolean) as { mark: React.ReactNode; label: string }[]
+          return (
+            <button key={p.id} className="day-row" onClick={() => onOpen(p)} onDoubleClick={() => st !== 'published' && onEdit(p)}>
+              <DayThumb src={p.video.thumbnailPath ? api.mediaUrl(p.video.thumbnailPath) : undefined} />
+              <span className="day-time">{timeLabel(new Date(it.at))}</span>
+              <span className="day-main">
+                <span className="ellipsis day-title">{p.youtube.enabled && p.youtube.title ? p.youtube.title : p.video.fileName}</span>
+                <span className="ellipsis faint day-sub">
+                  {where.map((w, i) => (
+                    <span key={i} className="day-acct">
+                      {w.mark} {w.label}
+                    </span>
+                  ))}
+                </span>
+              </span>
+              <span className={cx('pill', st === 'published' ? 'ok' : st === 'failed' || st === 'partial' || st === 'missed' ? 'err' : 'accent')}>{STATUS_TEXT[st] ?? st}</span>
+            </button>
+          )
+        })}
+      </div>
+      <div className="actions">
+        {onNew && (
+          <button className="btn" onClick={onNew}>
+            <Icon.Plus size={15} /> New post this day
+          </button>
+        )}
+        <button className="btn primary" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </>
+  )
+}
+
+function DayThumb({ src, remote }: { src?: string; remote?: boolean }) {
+  const [broken, setBroken] = useState(false)
+  return src && !broken ? <img className="thumb day-thumb" src={src} alt="" referrerPolicy={remote ? 'no-referrer' : undefined} onError={() => setBroken(true)} /> : <div className="thumb day-thumb" />
 }
 
 /** A post made in the Instagram or YouTube app, read back from the account. */
