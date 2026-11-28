@@ -5,7 +5,7 @@ import { unlink } from 'node:fs/promises'
 import type { Store } from './store'
 import { isInside } from './media'
 import { addLog } from './scheduler'
-import type { InstagramTarget, Platform, Post, PostDraftInput, TargetBase, YouTubeTarget } from '../shared/types'
+import type { InstagramTarget, Platform, Post, PostDraftInput, TargetBase, YouTubeTarget, YtComment } from '../shared/types'
 import { IN_FLIGHT, isEditable } from '../shared/status'
 import { validateInstagram, validateYouTube } from '../shared/validation'
 
@@ -23,8 +23,16 @@ export function savePost(store: Store, input: PostDraftInput, now = Date.now()):
     instagram: { ...input.instagram, accountId: input.instagram.accountId || store.accounts.instagram[0]?.id },
     youtube: { ...input.youtube, accountId: input.youtube.accountId || store.accounts.youtube[0]?.id }
   }
+  const commentTexts = cleanComments(input.youtube.comments)
+  {
+    const { comments: _drop, ...yt } = input.youtube
+    input = { ...input, youtube: yt }
+  }
   if (input.schedule && input.scheduledAt && Number.isNaN(Date.parse(input.scheduledAt))) throw new PostError('The date and time are not valid.')
-  if (input.schedule && input.scheduledAt && Date.parse(input.scheduledAt) < now - 60_000) {
+  // A post that is already out (e.g. adding comments to a live Short) keeps its past time.
+  const prior = input.id ? store.getPost(input.id) : undefined
+  const alreadyOut = !!prior && prior.scheduledAt === input.scheduledAt && [prior.instagram, prior.youtube].filter((t) => t.enabled).every((t) => !isEditable(t.state))
+  if (input.schedule && input.scheduledAt && !alreadyOut && Date.parse(input.scheduledAt) < now - 60_000) {
     throw new PostError('That time is in the past. Pick a future time or choose "Post now".')
   }
 
@@ -126,10 +134,40 @@ export function savePost(store: Store, input: PostDraftInput, now = Date.now()):
         t.uploadUrl = undefined
       }
     }
+    // Comments can still be added or changed after the Short is uploaded, until each one is posted.
+    t.comments = mergeComments(t.comments, input.youtube.enabled ? commentTexts : [])
+    if (!t.comments.length) delete t.comments
   }
 
   store.upsertPost(post)
   return post
+}
+
+export const MAX_COMMENTS = 10
+/** YouTube's limit for one comment. */
+export const COMMENT_MAX_CHARS = 10_000
+
+function cleanComments(texts: string[] | undefined): string[] {
+  const out = (texts ?? []).map((t) => t.trim()).filter(Boolean)
+  if (out.length > MAX_COMMENTS) throw new PostError(`You can add up to ${MAX_COMMENTS} comments.`)
+  if (out.some((t) => t.length > COMMENT_MAX_CHARS)) throw new PostError(`A comment can be at most ${COMMENT_MAX_CHARS.toLocaleString('en-US')} characters.`)
+  return out
+}
+
+/** Keeps comments already on YouTube; everything else becomes the new list, waiting to post. */
+export function mergeComments(existing: YtComment[] | undefined, texts: string[]): YtComment[] {
+  const posted = (existing ?? []).filter((c) => c.state === 'posted')
+  const left = [...posted]
+  const fresh: YtComment[] = []
+  for (const text of texts) {
+    const i = left.findIndex((c) => c.text === text)
+    if (i >= 0) {
+      left.splice(i, 1)
+      continue
+    }
+    fresh.push({ text, state: 'pending' })
+  }
+  return [...posted, ...fresh]
 }
 
 function resetTarget(t: TargetBase, state: TargetBase['state']): void {

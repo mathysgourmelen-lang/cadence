@@ -106,7 +106,7 @@ let state: AppSnapshot = {
       { id: '1784', username: 'max.creates', pageName: 'Max Creates' },
       { id: '1785', username: 'max.cooks', pageName: 'Max Cooks' }
     ],
-    youtube: [{ id: 'UC1', channelTitle: 'Max Creates' }],
+    youtube: [{ id: 'UC1', channelTitle: 'Max Creates', canComment: true }],
     instagramAppId: '123',
     youtubeClientId: 'x.apps.googleusercontent.com',
     youtubeHasSecret: true,
@@ -119,7 +119,7 @@ let state: AppSnapshot = {
     post(4, 'city-walk-tokyo.mp4', hoursFromNow(50), {}, { enabled: false }, 'Golden hour in Shibuya 🌆 #tokyo #travel', 'Golden hour in Shibuya'),
     post(5, 'gym-progress.mp4', hoursFromNow(74), { enabled: false }, {}, '6 months of training in 30 seconds 💪', '6 months of training in 30 seconds 💪'),
     post(6, 'recipe-pasta.mp4', hoursFromNow(122), {}, {}, '15-minute garlic pasta 🍝 #recipe #pasta', '15-minute garlic pasta 🍝'),
-    post(7, 'studio-vlog-12.mp4', hoursFromNow(-20), { state: 'published', url: 'https://instagram.com', publishedAt: hoursFromNow(-20) }, { state: 'published', url: 'https://youtube.com', publishedAt: hoursFromNow(-20) }, 'Studio vlog #12 🎙️', 'Studio vlog #12 🎙️'),
+    post(7, 'studio-vlog-12.mp4', hoursFromNow(-20), { state: 'published', url: 'https://instagram.com', publishedAt: hoursFromNow(-20) }, { state: 'published', url: 'https://youtube.com', publishedAt: hoursFromNow(-20), comments: [{ text: 'Full studio tour drops Friday 🎧', state: 'posted', postedAt: hoursFromNow(-20) }] }, 'Studio vlog #12 🎙️', 'Studio vlog #12 🎙️'),
     post(8, 'sunset-drone.mp4', hoursFromNow(-44), { state: 'failed', error: 'Instagram could not process this video (ERROR). Check the format: H.264, AAC audio, 23–60 fps.' }, { state: 'published', url: 'https://youtube.com', publishedAt: hoursFromNow(-44) }, 'Sunset from 120m up 🚁', 'Sunset from 120m up 🚁'),
     post(9, 'q-and-a.mp4', hoursFromNow(-70), { state: 'published', url: 'https://instagram.com', publishedAt: hoursFromNow(-70) }, { enabled: false }, 'Answering your questions 💬', 'Q&A')
   ]
@@ -159,7 +159,7 @@ export const mockApi: CadenceApi = {
   },
   async savePost(input) {
     await delay()
-    const p = post(Date.now(), input.video.fileName, input.scheduledAt, { ...input.instagram, state: input.schedule ? 'scheduled' : 'draft' }, { ...input.youtube, state: input.schedule ? 'scheduled' : 'draft' }, input.instagram.caption, input.youtube.title)
+    const p = post(Date.now(), input.video.fileName, input.scheduledAt, { ...input.instagram, state: input.schedule ? 'scheduled' : 'draft' }, { ...input.youtube, comments: input.youtube.comments?.map((text) => ({ text, state: 'pending' as const })), state: input.schedule ? 'scheduled' : 'draft' }, input.instagram.caption, input.youtube.title)
     p.video = input.video
     state = { ...state, posts: [...state.posts.filter((x) => x.id !== input.id), p] }
     emit()

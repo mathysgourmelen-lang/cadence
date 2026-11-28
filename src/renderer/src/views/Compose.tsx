@@ -6,7 +6,7 @@ import { Avatar, Modal, Segmented, Spinner, Switch, useFeedback } from '../ui'
 import { DateTimePicker, dayKey } from './DateTimePicker'
 import PhonePreview, { type PreviewMode } from './PhonePreview'
 import { addDays, atTime, captureFrame, cx, firstLine, formatHHMM, parseTags, relative, startOfDay, timezoneName, uid } from '../util'
-import type { Check, Post, PostDraftInput, Settings, VideoRef, YouTubePrivacy } from '../../../shared/types'
+import type { Check, Post, PostDraftInput, Settings, VideoRef, YouTubePrivacy, YtComment } from '../../../shared/types'
 import {
   aspectLabel,
   charCount,
@@ -40,6 +40,10 @@ interface Draft {
     categoryId: string
     mode: 'native' | 'atTime'
     thumbnailPath?: string
+    /** Comments to post once the Short is live (one box each). */
+    comments: string[]
+    /** Comments already on YouTube, shown read-only. */
+    posted?: YtComment[]
   }
   descSameAsCaption: boolean
   titleTouched: boolean
@@ -103,7 +107,8 @@ function newDraft(video: VideoRef, settings: Settings, after: Date, ig: boolean,
       privacy: settings.youtubeDefaultPrivacy,
       madeForKids: settings.youtubeMadeForKids,
       categoryId: settings.youtubeDefaultCategory,
-      mode: settings.youtubeDefaultMode
+      mode: settings.youtubeDefaultMode,
+      comments: []
     },
     descSameAsCaption: true,
     titleTouched: false,
@@ -134,7 +139,9 @@ function draftFromPost(p: Post): Draft {
       madeForKids: p.youtube.madeForKids,
       categoryId: p.youtube.categoryId,
       mode: p.youtube.mode,
-      thumbnailPath: p.youtube.thumbnailPath
+      thumbnailPath: p.youtube.thumbnailPath,
+      comments: (p.youtube.comments ?? []).filter((c) => c.state !== 'posted').map((c) => c.text),
+      posted: (p.youtube.comments ?? []).filter((c) => c.state === 'posted')
     },
     descSameAsCaption: p.youtube.description === p.instagram.caption,
     titleTouched: true,
@@ -170,7 +177,8 @@ function toInput(d: Draft, schedule: boolean): PostDraftInput {
       madeForKids: d.yt.madeForKids,
       categoryId: d.yt.categoryId,
       mode: d.yt.mode,
-      thumbnailPath: d.yt.thumbnailPath
+      thumbnailPath: d.yt.thumbnailPath,
+      comments: [...(d.yt.posted ?? []).map((c) => c.text), ...d.yt.comments.map((c) => c.trim()).filter(Boolean)]
     }
   }
 }
@@ -194,7 +202,8 @@ function draftProblem(d: Draft, accounts: { ig: boolean; yt: boolean }): string 
   if (d.yt.enabled && !accounts.yt) return 'Connect YouTube in Accounts first.'
   if (d.ig.enabled && !d.ig.accountIds.length) return 'Pick an Instagram account to post to.'
   if (d.yt.enabled && !d.yt.accountIds.length) return 'Pick a YouTube channel to post to.'
-  if (d.when === 'later' && Date.parse(d.date) < Date.now() + 30_000) return 'The scheduled time is in the past.'
+  const allLocked = (!d.ig.enabled || d.igLocked) && (!d.yt.enabled || d.ytLocked)
+  if (d.when === 'later' && !allLocked && Date.parse(d.date) < Date.now() + 30_000) return 'The scheduled time is in the past.'
   return null
 }
 
@@ -722,6 +731,15 @@ export default function Compose() {
                     </select>
                   </div>
                 </div>
+                <YouTubeCommentsField
+                  comments={d.yt.comments}
+                  posted={d.yt.posted}
+                  failed={d.postId ? snap!.posts.find((p) => p.id === d.postId)?.youtube.comments : undefined}
+                  madeForKids={d.yt.madeForKids}
+                  needsReconnect={ytAccounts.filter((a) => d.yt.accountIds.includes(a.id) && !a.canComment).map((a) => a.channelTitle)}
+                  onReconnect={() => go('accounts')}
+                  onChange={(comments) => set((x) => ({ ...x, yt: { ...x.yt, comments } }))}
+                />
                 <div className="divider" />
                 <div className="toggle-row" style={{ paddingTop: 0 }}>
                   <div className="text">
@@ -1004,6 +1022,86 @@ function SpreadModal({
         </button>
       </div>
     </Modal>
+  )
+}
+
+const MAX_COMMENTS = 10
+
+/** Comments Cadence posts under the Short, in order, once it is live. */
+function YouTubeCommentsField({
+  comments,
+  posted,
+  failed,
+  madeForKids,
+  needsReconnect,
+  onReconnect,
+  onChange
+}: {
+  comments: string[]
+  posted?: YtComment[]
+  failed?: YtComment[]
+  madeForKids: boolean
+  needsReconnect: string[]
+  onReconnect: () => void
+  onChange: (comments: string[]) => void
+}) {
+  const total = (posted?.length ?? 0) + comments.length
+  const errorFor = (text: string) => failed?.find((c) => c.state === 'failed' && c.text === text.trim())?.error
+  const setAt = (i: number, v: string) => onChange(comments.map((c, j) => (j === i ? v : c)))
+  return (
+    <div className="field" style={{ marginTop: 16 }}>
+      <label>
+        Comments <span className="faint small" style={{ fontWeight: 500 }}>optional</span>
+      </label>
+      <div className="help" style={{ marginTop: 0, marginBottom: 8 }}>
+        Posted from your channel right after the Short goes live, in this order. Pin one in YouTube Studio if you like.
+      </div>
+      {comments.some((c) => c.trim()) && needsReconnect.length > 0 && (
+        <div className="notice warn" style={{ marginBottom: 8 }}>
+          <div className="grow">
+            Reconnect {needsReconnect.join(', ')} once so Cadence can post comments. Your scheduled posts stay as they are.
+          </div>
+          <button type="button" className="btn sm" onClick={onReconnect}>
+            Open Accounts
+          </button>
+        </div>
+      )}
+      {madeForKids && <div className="notice warn" style={{ marginBottom: 8 }}>YouTube turns comments off on Shorts made for kids, so these won't be posted.</div>}
+      <div className="yt-comments">
+        {posted?.map((c, i) => (
+          <div key={`p${i}`} className="yt-comment posted">
+            <Icon.Check size={14} />
+            <div className="grow">{c.text}</div>
+            <span className="faint small">Posted</span>
+          </div>
+        ))}
+        {comments.map((c, i) => {
+          const err = errorFor(c)
+          return (
+            <div key={i} className="yt-comment-edit">
+              <div className="row" style={{ gap: 6, alignItems: 'flex-start' }}>
+                <textarea
+                  className="input"
+                  rows={Math.min(5, Math.max(2, c.split('\n').length))}
+                  placeholder={i === 0 ? 'Paste a comment, e.g. "Part 2 is up on my channel!"' : 'Another comment'}
+                  value={c}
+                  onChange={(e) => setAt(i, e.target.value)}
+                />
+                <button type="button" className="btn icon ghost" title="Remove comment" aria-label="Remove comment" onClick={() => onChange(comments.filter((_, j) => j !== i))}>
+                  <Icon.X size={14} />
+                </button>
+              </div>
+              {err && <div className="help err">Last try failed: {err} Saving the post tries again.</div>}
+            </div>
+          )
+        })}
+      </div>
+      {total < MAX_COMMENTS && (
+        <button type="button" className="btn ghost sm" style={{ marginTop: comments.length || posted?.length ? 8 : 0 }} onClick={() => onChange([...comments, ''])}>
+          <Icon.Comment size={14} /> {total ? 'Add another comment' : 'Add a comment'}
+        </button>
+      )}
+    </div>
   )
 }
 

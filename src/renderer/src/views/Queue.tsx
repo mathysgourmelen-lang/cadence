@@ -209,6 +209,7 @@ export function usePostActions(post: Post) {
   const busy = targets.some((t) => IN_FLIGHT.includes(t.state))
   const editable = targets.some((t) => isEditable(t.state))
   const failed = targets.some((t) => t.state === 'failed')
+  const commentable = post.youtube.enabled && (post.youtube.state === 'scheduled_remote' || post.youtube.state === 'published')
   const run = async (fn: () => Promise<unknown>, ok?: string) => {
     try {
       await fn()
@@ -218,7 +219,8 @@ export function usePostActions(post: Post) {
     }
   }
   const items: MenuEntry[] = [
-    { label: 'Edit', icon: <Icon.Edit size={15} />, disabled: !editable, onClick: () => go('compose', { compose: { postId: post.id } }) },
+    // A Short already on YouTube can still be opened to add comments.
+    { label: editable ? 'Edit' : 'Edit comments', icon: <Icon.Edit size={15} />, disabled: !editable && !commentable, onClick: () => go('compose', { compose: { postId: post.id } }) },
     { label: 'Reschedule…', icon: <Icon.Calendar size={15} />, disabled: busy || !editable, onClick: () => setRescheduling(true) },
     {
       label: 'Post now',
