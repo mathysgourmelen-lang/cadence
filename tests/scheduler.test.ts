@@ -82,6 +82,15 @@ class FakeYT {
     this.calls.push(`thumb:${videoId}:${path.split('/').pop()}`)
     if (this.thumbFail) throw this.thumbFail
   }
+  comments: string[] = []
+  commentFail: ApiError[] = []
+  async postComment(_t: unknown, videoId: string, text: string) {
+    this.calls.push(`comment:${videoId}`)
+    const e = this.commentFail.shift()
+    if (e) throw e
+    this.comments.push(text)
+    return `CM${this.comments.length}`
+  }
   async queryUpload() {
     this.calls.push('query')
     return { offset: 500 }
@@ -515,5 +524,92 @@ describe('Upgrading from one account per platform', () => {
     await s.flush()
     expect(existsSync(join(dir, 'state.json.v1-backup'))).toBe(true)
     expect(new Store(dir, cipher).accounts.instagram[0].id).toBe('9')
+  })
+})
+
+describe('YouTube comments', () => {
+  beforeEach(() => setup())
+  const ytOnly = (over: Partial<PostDraftInput['youtube']> = {}) =>
+    input({
+      scheduledAt: new Date(clock + 24 * 3600_000).toISOString(),
+      instagram: { enabled: false, caption: '', shareToFeed: true, coverOffsetMs: null },
+      youtube: { enabled: true, title: 'My Short', description: 'd', tags: [], privacy: 'public', madeForKids: false, categoryId: '22', mode: 'native', ...over }
+    })
+
+  it('posts the comments in order a minute after YouTube publishes the Short', async () => {
+    const p = savePost(store, ytOnly({ comments: ['First!', '  ', 'Part 2 is up'] }), clock)
+    expect(store.getPost(p.id)!.youtube.comments!.map((c) => c.text)).toEqual(['First!', 'Part 2 is up'])
+    await step()
+    expect(store.getPost(p.id)!.youtube.state).toBe('scheduled_remote')
+    expect(yt.comments).toEqual([])
+
+    clock = Date.parse(p.scheduledAt!)
+    await step()
+    expect(store.getPost(p.id)!.youtube.state).toBe('published')
+    expect(yt.comments).toEqual([])
+
+    clock += 61_000
+    await step()
+    expect(yt.comments).toEqual(['First!', 'Part 2 is up'])
+    const cs = store.getPost(p.id)!.youtube.comments!
+    expect(cs.map((c) => c.state)).toEqual(['posted', 'posted'])
+    expect(cs[0].commentId).toBe('CM1')
+
+    clock += 3600_000
+    await step()
+    expect(yt.comments.length).toBe(2)
+  })
+
+  it('retries a comment YouTube is not ready for, keeping the order', async () => {
+    const p = savePost(store, ytOnly({ privacy: 'unlisted', comments: ['a', 'b'] }), clock)
+    clock = Date.parse(p.scheduledAt!)
+    await step()
+    expect(store.getPost(p.id)!.youtube.state).toBe('published')
+    yt.commentFail = [new ApiError('not yet', { retriable: true, code: 'videoNotFound' })]
+    clock += 61_000
+    await step()
+    expect(yt.comments).toEqual([])
+    let cs = store.getPost(p.id)!.youtube.comments!
+    expect(cs.map((c) => c.state)).toEqual(['pending', 'pending'])
+    clock += 31_000
+    await step()
+    expect(yt.comments).toEqual(['a', 'b'])
+    cs = store.getPost(p.id)!.youtube.comments!
+    expect(cs.every((c) => c.state === 'posted')).toBe(true)
+  })
+
+  it('stops and says so when the sign-in lacks the comment permission; reconnect lets it retry', async () => {
+    const p = savePost(store, ytOnly({ privacy: 'unlisted', comments: ['a', 'b'] }), clock)
+    clock = Date.parse(p.scheduledAt!) + 61_000
+    await step()
+    yt.commentFail = [new ApiError('Cadence needs permission to post comments.', { retriable: false, code: 'commentScope' })]
+    clock += 61_000
+    await step()
+    const cs = store.getPost(p.id)!.youtube.comments!
+    expect(cs.map((c) => c.state)).toEqual(['failed', 'failed'])
+    expect(notes).toContain('Comments not posted')
+    expect(store.getPost(p.id)!.youtube.state).toBe('published')
+  })
+
+  it('comments can be added after upload, and posted ones are kept', async () => {
+    const p = savePost(store, ytOnly(), clock)
+    await step()
+    expect(store.getPost(p.id)!.youtube.state).toBe('scheduled_remote')
+    const base = ytOnly()
+    savePost(store, { ...base, id: p.id, scheduledAt: p.scheduledAt, youtube: { ...base.youtube, comments: ['hello'] } }, clock)
+    expect(store.getPost(p.id)!.youtube.comments!.map((c) => [c.text, c.state])).toEqual([['hello', 'pending']])
+    clock = Date.parse(p.scheduledAt!) + 61_000
+    await step()
+    await step()
+    expect(yt.comments).toEqual(['hello'])
+    savePost(store, { ...base, id: p.id, scheduledAt: p.scheduledAt, youtube: { ...base.youtube, comments: ['hello', 'again'] } }, clock)
+    expect(store.getPost(p.id)!.youtube.comments!.map((c) => [c.text, c.state])).toEqual([
+      ['hello', 'posted'],
+      ['again', 'pending']
+    ])
+  })
+
+  it('rejects too many comments', () => {
+    expect(() => savePost(store, ytOnly({ comments: Array.from({ length: 11 }, (_, i) => `c${i}`) }), clock)).toThrow(PostError)
   })
 })

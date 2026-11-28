@@ -15,6 +15,8 @@ export const THUMB_MAX_BYTES = 2 * 1024 * 1024
 export const YT_SCOPES = [
   'https://www.googleapis.com/auth/youtube.upload',
   'https://www.googleapis.com/auth/youtube.readonly',
+  // Posting the comments you add to a Short once it goes live.
+  'https://www.googleapis.com/auth/youtube.force-ssl',
   // Watch time, retention and traffic sources for the Analytics tab.
   'https://www.googleapis.com/auth/yt-analytics.readonly'
 ]
@@ -42,6 +44,13 @@ export interface YouTubeTokens {
   refreshToken: string
   accessToken?: string
   accessTokenExpiresAt?: number
+  /** Permissions Google granted at sign-in (space separated), when known. */
+  scope?: string
+}
+
+/** True when the sign-in includes the permission to post comments. */
+export function canComment(scope: string | undefined): boolean {
+  return !scope || scope.includes('youtube.force-ssl')
 }
 
 export interface VideoMetadata {
@@ -261,7 +270,8 @@ export class YouTubeClient {
       clientSecret,
       refreshToken: body.refresh_token,
       accessToken: body.access_token,
-      accessTokenExpiresAt: Date.now() + (Number(body.expires_in) || 3600) * 1000
+      accessTokenExpiresAt: Date.now() + (Number(body.expires_in) || 3600) * 1000,
+      scope: granted || undefined
     }
   }
 
@@ -431,6 +441,40 @@ export class YouTubeClient {
       )
     }
     throw googleError(res.status, body, 'YouTube did not accept the thumbnail')
+  }
+
+  /**
+   * Posts a top-level comment from the channel under one of its videos and returns the comment id.
+   * https://developers.google.com/youtube/v3/docs/commentThreads/insert (50 quota units)
+   */
+  async postComment(tokens: YouTubeTokens, videoId: string, text: string): Promise<string> {
+    if (!/^[\w-]{6,20}$/.test(videoId)) throw new ApiError('Unknown video.', { retriable: false })
+    const token = await this.accessToken(tokens)
+    const res = await fetchWithTimeout(`${this.endpoints.api}/commentThreads?part=snippet`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ snippet: { videoId, topLevelComment: { snippet: { textOriginal: text } } } })
+    })
+    const body = await readJson(res)
+    if (res.ok) return String(body?.id ?? '')
+    const reason: string | undefined = body?.error?.errors?.[0]?.reason
+    const message: string = body?.error?.message ?? ''
+    if (res.status === 403 && (reason === 'insufficientPermissions' || /insufficient.*scope|ACCESS_TOKEN_SCOPE/i.test(message))) {
+      throw new ApiError('Cadence needs permission to post comments. Disconnect and reconnect this channel in Accounts, and tick every box on the Google screen.', {
+        status: 403,
+        retriable: false,
+        code: 'commentScope',
+        raw: body
+      })
+    }
+    if (reason === 'commentsDisabled') {
+      throw new ApiError('Comments are turned off on this Short (Shorts made for kids never allow comments).', { status: res.status, retriable: false, code: reason, raw: body })
+    }
+    // Right after an upload YouTube can still be processing the video, or not see it yet.
+    if (reason === 'videoNotFound' || reason === 'processingFailure' || reason === 'forbidden') {
+      throw new ApiError(`YouTube isn't taking comments on this Short yet (${reason}).`, { status: res.status, retriable: true, code: reason, raw: body })
+    }
+    throw googleError(res.status, body, 'YouTube did not accept the comment')
   }
 
   /** Starts a resumable upload session and returns its upload URL. */

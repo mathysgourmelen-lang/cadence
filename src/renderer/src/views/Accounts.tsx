@@ -425,7 +425,7 @@ function YtRow({ a, busy, onReconnect }: { a: YouTubeAccount; busy: boolean; onR
             {pending > 0 && ` · ${pending} queued`}
           </div>
         </div>
-        {a.problem && (
+        {(a.problem || !a.canComment) && (
           <button className="btn sm" disabled={busy} onClick={onReconnect} title="Sign in again and choose this channel">
             Reconnect
           </button>
@@ -449,6 +449,12 @@ function YtRow({ a, busy, onReconnect }: { a: YouTubeAccount; busy: boolean; onR
         <div className="notice err">
           <Icon.Alert size={16} />
           <div>{a.problem}</div>
+        </div>
+      )}
+      {!a.problem && !a.canComment && (
+        <div className="notice warn">
+          <Icon.Comment size={16} />
+          <div>Reconnect once to let Cadence post the comments you add to your Shorts. Pick this channel and tick every box on the Google screen.</div>
         </div>
       )}
     </div>

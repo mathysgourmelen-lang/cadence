@@ -89,7 +89,9 @@ export class Scheduler {
       const at = p.scheduledAt ? Date.parse(p.scheduledAt) : now
       const ig = p.instagram.enabled && ['scheduled', 'ready', 'uploading', 'processing', 'publishing'].includes(p.instagram.state)
       const yt = p.youtube.enabled && ['scheduled', 'uploading'].includes(p.youtube.state)
-      return (ig && at - lead - now < withinMs) || (yt && (youtubeUsesPublishAt(p.youtube) || at - now < withinMs))
+      // Comments wait for the Short to go live, so stay awake around then too.
+      const comments = p.youtube.enabled && (p.youtube.comments ?? []).some((c) => c.state === 'pending') && (p.youtube.state === 'published' || (p.youtube.state === 'scheduled_remote' && at - now < withinMs))
+      return (ig && at - lead - now < withinMs) || (yt && (youtubeUsesPublishAt(p.youtube) || at - now < withinMs)) || comments
     })
   }
 
@@ -420,9 +422,101 @@ export class Scheduler {
               })
             }
           : null
+      case 'published':
+        return nextCommentAt(t, now) != null && nextCommentAt(t, now)! <= now ? () => this.ytComments(post.id) : null
       default:
         return null
     }
+  }
+
+  /** Posts the Short's waiting comments, oldest first, one at a time. */
+  private async ytComments(postId: string): Promise<void> {
+    const post = this.store.getPost(postId)
+    const videoId = post?.youtube.videoId
+    if (!post || !videoId || !this.deps.youtube.postComment) return
+    let tokens: YouTubeTokens | undefined
+    try {
+      tokens = this.ytTokens(postId)
+    } catch (err) {
+      this.failComments(postId, err)
+      return
+    }
+    try {
+      for (;;) {
+        const now = this.now()
+        const p = this.store.getPost(postId)
+        const i = p?.youtube.comments?.findIndex((c) => c.state === 'pending' && (!c.nextAttemptAt || Date.parse(c.nextAttemptAt) <= now)) ?? -1
+        if (!p || i < 0 || p.youtube.state !== 'published') return
+        const text = p.youtube.comments![i].text
+        try {
+          const id = await this.deps.youtube.postComment(tokens, videoId, text)
+          this.setYt(postId, (y) => {
+            const c = y.comments?.[i]
+            if (!c || c.text !== text) return
+            c.state = 'posted'
+            c.commentId = id || undefined
+            c.postedAt = new Date(this.now()).toISOString()
+            c.error = undefined
+            c.nextAttemptAt = undefined
+            addLog(y, `Comment posted: "${preview(text)}"`)
+          })
+        } catch (err) {
+          const e = err instanceof ApiError ? err : new ApiError((err as Error)?.message ?? String(err), { retriable: true })
+          this.setYt(postId, (y) => {
+            const c = y.comments?.[i]
+            if (!c || c.text !== text) return
+            c.attempts = (c.attempts ?? 0) + 1
+            c.error = e.message
+            if (e.retriable && c.attempts < MAX_ATTEMPTS) {
+              const wait = Math.max(backoffMs(c.attempts), e.opts.retryAfter ? e.opts.retryAfter.getTime() - this.now() : 0)
+              c.nextAttemptAt = new Date(this.now() + wait).toISOString()
+              addLog(y, `Comment not posted yet: ${e.message} Retrying ${wait >= 3600_000 ? 'later' : `in ${Math.round(wait / 60_000) || 1} min`}.`, 'error')
+            } else {
+              c.state = 'failed'
+              c.nextAttemptAt = undefined
+              addLog(y, `Comment not posted: ${e.message}`, 'error')
+            }
+          })
+          // A sign-in or permission problem, or comments turned off, affects every comment.
+          if (e.opts.authError || e.opts.code === 'commentScope' || e.opts.code === 'commentsDisabled') {
+            this.failComments(postId, e)
+            if (e.opts.authError) {
+              const channel = this.store.getPost(postId)?.youtube.accountId
+              if (channel && this.store.ytAccount(channel)) this.store.patchYtAccount(channel, { problem: e.message })
+            }
+            return
+          }
+          if (e.retriable) {
+            // Hold the later comments back too, so they still go up in order.
+            const wait = this.store.getPost(postId)?.youtube.comments?.[i]?.nextAttemptAt
+            if (wait) this.setYt(postId, (y) => y.comments?.forEach((c, j) => j > i && c.state === 'pending' && (c.nextAttemptAt = wait)))
+            return
+          }
+          // Only this comment was refused: carry on with the next one.
+        }
+      }
+    } finally {
+      const channel = this.store.getPost(postId)?.youtube.accountId
+      if (tokens && channel) saveYtTokens(this.store, channel, tokens)
+    }
+  }
+
+  /** Marks every waiting comment as failed with the same reason. */
+  private failComments(postId: string, err: unknown): void {
+    const msg = (err as Error)?.message ?? String(err)
+    let n = 0
+    this.setYt(postId, (y) => {
+      for (const c of y.comments ?? []) {
+        if (c.state !== 'pending') continue
+        c.state = 'failed'
+        c.error = msg
+        c.nextAttemptAt = undefined
+        n++
+      }
+      if (n) addLog(y, `${n === 1 ? 'A comment' : `${n} comments`} couldn't be posted: ${msg}`, 'error')
+    })
+    const post = this.store.getPost(postId)
+    if (n && post) this.deps.notify?.('Comments not posted', `${post.video.fileName}: ${msg}`, postId)
   }
 
   private ytTokens(postId: string): YouTubeTokens {
@@ -633,6 +727,23 @@ export class Scheduler {
       )
     }
   }
+}
+
+/** Give YouTube a moment after a Short goes live before commenting on it. */
+export const COMMENT_DELAY_MS = 60_000
+
+/** When the next waiting comment is due, or null when none is waiting. */
+export function nextCommentAt(t: YouTubeTarget, now: number): number | null {
+  if (t.state !== 'published' || !t.videoId) return null
+  const pending = (t.comments ?? []).filter((c) => c.state === 'pending')
+  if (!pending.length) return null
+  const live = (t.publishedAt ? Date.parse(t.publishedAt) : now) + COMMENT_DELAY_MS
+  return Math.max(live, ...pending.map((c) => (c.nextAttemptAt ? Date.parse(c.nextAttemptAt) : 0)).slice(0, 1))
+}
+
+function preview(text: string): string {
+  const one = text.replace(/\s+/g, ' ').trim()
+  return one.length > 60 ? `${one.slice(0, 57)}...` : one
 }
 
 function key(postId: string, platform: Platform): string {

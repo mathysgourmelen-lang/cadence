@@ -19,7 +19,7 @@ import { basename, join } from 'node:path'
 import { Store, type Cipher } from './store'
 import { saveYtTokens, Scheduler, ytTokensFor } from './scheduler'
 import { InstagramClient, type InstagramCredentials } from './instagram'
-import { YouTubeClient, type YouTubeTokens } from './youtube'
+import { canComment, YouTubeClient, type YouTubeTokens } from './youtube'
 import { ApiError } from './http'
 import { prepareThumbnail, THUMB_EXTENSIONS } from './ytthumb'
 import { cleanLibrary, importVideo, saveThumbnail, serveFile, serveLibraryFile } from './media'
@@ -629,8 +629,24 @@ function registerIpc(): void {
       channelTitle: ch.title,
       thumbnailUrl: ch.thumbnailUrl,
       connectedAt: store.ytAccount(ch.id)?.connectedAt ?? new Date().toISOString(),
-      problem: undefined
+      problem: undefined,
+      canComment: canComment(tokens.scope)
     })
+    // Comments that failed because of the old sign-in get another go.
+    if (canComment(tokens.scope)) {
+      for (const p of store.posts) {
+        if (p.youtube.accountId !== ch.id || !p.youtube.comments?.some((c) => c.state === 'failed')) continue
+        store.updatePost(p.id, (post) => {
+          for (const c of post.youtube.comments ?? []) {
+            if (c.state !== 'failed') continue
+            c.state = 'pending'
+            c.attempts = 0
+            c.error = undefined
+            c.nextAttemptAt = undefined
+          }
+        })
+      }
+    }
     mainWindow?.show()
     mainWindow?.focus()
     scheduler.kick()

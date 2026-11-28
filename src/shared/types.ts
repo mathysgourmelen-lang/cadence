@@ -101,6 +101,18 @@ export interface YouTubeTarget extends TargetBase {
   videoId?: string
   /** Custom thumbnail (JPEG/PNG in the app library), set after the upload. */
   thumbnailPath?: string
+  /** Comments Cadence posts under the Short once it is live, in order. */
+  comments?: YtComment[]
+}
+
+export interface YtComment {
+  text: string
+  state: 'pending' | 'posted' | 'failed'
+  commentId?: string
+  postedAt?: string
+  error?: string
+  attempts?: number
+  nextAttemptAt?: string
 }
 
 export interface VideoRef {
@@ -181,6 +193,8 @@ export interface YouTubeAccount {
   thumbnailUrl?: string
   connectedAt?: string
   problem?: string
+  /** Whether the sign-in allows posting comments. Channels connected before Cadence 1.11 need to reconnect. */
+  canComment?: boolean
 }
 
 export interface AccountsState {
@@ -218,7 +232,10 @@ export interface PostDraftInput {
   scheduledAt: string | null
   video: VideoRef
   instagram: Pick<InstagramTarget, 'enabled' | 'accountId' | 'caption' | 'shareToFeed' | 'coverOffsetMs'>
-  youtube: Pick<YouTubeTarget, 'enabled' | 'accountId' | 'title' | 'description' | 'tags' | 'privacy' | 'madeForKids' | 'categoryId' | 'mode' | 'thumbnailPath'>
+  youtube: Pick<YouTubeTarget, 'enabled' | 'accountId' | 'title' | 'description' | 'tags' | 'privacy' | 'madeForKids' | 'categoryId' | 'mode' | 'thumbnailPath'> & {
+    /** Comments to post once the Short is live. */
+    comments?: string[]
+  }
   /** false = save as draft. */
   schedule: boolean
 }
